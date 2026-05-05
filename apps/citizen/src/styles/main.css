@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* Estilos base para PWA */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Evitar selección de texto en botones */
+button {
+  user-select: none;
+  -webkit-user-select: none;
+}

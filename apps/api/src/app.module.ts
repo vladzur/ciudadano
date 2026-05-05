@@ -1,0 +1,21 @@
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { ReportsModule } from "./modules/reports/reports.module.js";
+import { AuthModule } from "./modules/auth/auth.module.js";
+import { StorageModule } from "./modules/storage/storage.module.js";
+import { ReportsAnalyticsModule } from "./modules/reports-analytics/reports-analytics.module.js";
+import { configuration } from "./config/configuration.js";
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [configuration],
+    }),
+    ReportsModule,
+    AuthModule,
+    StorageModule,
+    ReportsAnalyticsModule,
+  ],
+})
+export class AppModule {}

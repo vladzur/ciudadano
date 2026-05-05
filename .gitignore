@@ -1,0 +1,60 @@
+# Dependencias
+node_modules/
+
+# Builds y outputs
+dist/
+*.tsbuildinfo
+*.tsbuildinfo.*
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+firebase-debug.log
+
+# Turbo (monorepo cache)
+.turbo
+
+# Testing
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+\#*\#
+
+# Firebase
+.firebase/
+.firebase/*.cache
+*-service-account.json
+*-service-account*.json
+
+# Certificados y claves
+certs/
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# Claude Code (configuración local)
+.claude/
+
+# Docker (imágenes, volúmenes locales)
+docker-compose.override.yml
+
+# Temp / misc
+*.tmp
+*.temp
+.cache/
