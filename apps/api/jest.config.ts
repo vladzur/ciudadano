@@ -10,6 +10,7 @@ const config: Config = {
   moduleNameMapper: {
     "^@ciudadano/shared$": "<rootDir>/../../packages/shared/src/index.ts",
     "^@ciudadano/database$": "<rootDir>/../../packages/database/src/client.ts",
+    "^(\\.\\.?/.+)\\.js$": "$1",
   },
   collectCoverageFrom: ["src/**/*.(t|j)s"],
   coverageDirectory: "./coverage",
