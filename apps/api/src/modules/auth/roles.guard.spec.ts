@@ -50,11 +50,10 @@ describe("RolesGuard", () => {
     expect(guard.canActivate(context)).toBe(false);
   });
 
-  it("should throw TypeError when user is null and roles are required", () => {
+  it("should deny access when user is null and roles are required", () => {
     jest.spyOn(reflector, "getAllAndOverride").mockReturnValue(["admin"]);
     const context = createMockContext();
 
-    // Error actual del guard: intenta leer user.role cuando user es null
-    expect(() => guard.canActivate(context)).toThrow(TypeError);
+    expect(guard.canActivate(context)).toBe(false);
   });
 });

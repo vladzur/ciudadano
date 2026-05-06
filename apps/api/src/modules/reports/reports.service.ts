@@ -23,7 +23,8 @@ export class ReportsService {
   /** Crea una denuncia con imagen opcional */
   async create(
     dto: CreateReportDto,
-    imageFile?: Express.Multer.File
+    imageFile?: Express.Multer.File,
+    citizenUserId?: string
   ): Promise<IReport> {
     let imageUrl: string | undefined;
 
@@ -49,6 +50,7 @@ export class ReportsService {
       latitude: dto.latitude,
       longitude: dto.longitude,
       imageUrl,
+      citizenUserId,
     });
   }
 
