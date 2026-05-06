@@ -10,6 +10,7 @@ export const useAuthStore = defineStore("auth", () => {
   const refreshToken = ref<string | null>(localStorage.getItem("refreshToken"));
 
   const isAuthenticated = computed(() => !!accessToken.value);
+  const isAdmin = computed(() => user.value?.role === "admin");
 
   /** Inicia sesión con email y contraseña */
   async function login(email: string, password: string): Promise<void> {
@@ -31,5 +32,5 @@ export const useAuthStore = defineStore("auth", () => {
     localStorage.removeItem("refreshToken");
   }
 
-  return { user, accessToken, refreshToken, isAuthenticated, login, logout };
+  return { user, accessToken, refreshToken, isAuthenticated, isAdmin, login, logout };
 });

@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { requiresAuth: false },
     },
     {
+      path: "/register",
+      name: "register",
+      component: () => import("../views/RegisterView.vue"),
+      meta: { requiresAuth: false },
+    },
+    {
       path: "/",
       name: "dashboard",
       component: DashboardView,
@@ -39,20 +45,38 @@ const router = createRouter({
       component: ReportsExportView,
       meta: { requiresAuth: true },
     },
+    {
+      path: "/users",
+      name: "users",
+      component: () => import("../views/UsersView.vue"),
+      meta: { requiresAuth: true, roles: ["admin"] },
+    },
   ],
 });
 
-/** Guard de autenticación: redirige a login si no hay token */
+/** Guard de autenticación y roles */
 router.beforeEach((to, _from, next) => {
   const auth = useAuthStore();
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     next("/login");
-  } else if (to.path === "/login" && auth.isAuthenticated) {
-    next("/");
-  } else {
-    next();
+    return;
   }
+
+  if (to.meta.roles) {
+    const requiredRoles = to.meta.roles as string[];
+    if (!auth.user || !requiredRoles.includes(auth.user.role)) {
+      next("/");
+      return;
+    }
+  }
+
+  if (to.path === "/login" && auth.isAuthenticated) {
+    next("/");
+    return;
+  }
+
+  next();
 });
 
 export default router;

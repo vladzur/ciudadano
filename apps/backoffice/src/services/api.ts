@@ -89,4 +89,24 @@ export async function getSignedUrl(objectKey: string): Promise<string> {
   return data.data.url;
 }
 
+/** User management (admin only) */
+export async function fetchUsers() {
+  const { data } = await api.get("/auth/users");
+  return data.data;
+}
+
+export async function updateUserStatus(id: string, status: string) {
+  const { data } = await api.patch(`/auth/users/${id}/status`, { status });
+  return data.data;
+}
+
+export async function updateUserRole(id: string, role: string) {
+  const { data } = await api.patch(`/auth/users/${id}/role`, { role });
+  return data.data;
+}
+
+export async function deleteUser(id: string) {
+  await api.delete(`/auth/users/${id}`);
+}
+
 export default api;

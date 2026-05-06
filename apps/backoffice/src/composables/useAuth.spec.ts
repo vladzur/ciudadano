@@ -23,10 +23,10 @@ describe("useAuth", () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
-    (useRouter as ReturnType<typeof vi.fn>).mockReturnValue({ push: mockPush });
-    (useAuthStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    vi.mocked(useRouter).mockReturnValue({ push: mockPush } as any);
+    vi.mocked(useAuthStore).mockReturnValue({
       login: mockStoreLogin,
-    });
+    } as any);
   });
 
   it("should start with no error and no loading", () => {

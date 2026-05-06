@@ -45,6 +45,13 @@ function logout() {
             >
               Reportes
             </router-link>
+            <router-link
+              v-if="auth.user?.role === 'admin'"
+              to="/users"
+              class="text-sm text-gray-600 hover:text-green-700 transition-colors"
+            >
+              Usuarios
+            </router-link>
             <button
               class="text-sm text-red-600 hover:text-red-800 transition-colors font-medium"
               @click="logout"
