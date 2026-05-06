@@ -8,13 +8,15 @@ jest.mock("@ciudadano/database", () => ({
   pool: { query: jest.fn() },
 }));
 
-// Mock de firebase-admin
+// Mock de firebase-admin (subpath imports para ESM)
 const mockVerifyIdToken = jest.fn();
-jest.mock("firebase-admin", () => ({
-  initializeApp: jest.fn(() => ({
-    auth: () => ({
-      verifyIdToken: mockVerifyIdToken,
-    }),
+jest.mock("firebase-admin/app", () => ({
+  initializeApp: jest.fn(() => ({ name: "test-app" })),
+  getApp: jest.fn(() => ({ name: "test-app" })),
+}));
+jest.mock("firebase-admin/auth", () => ({
+  getAuth: jest.fn(() => ({
+    verifyIdToken: mockVerifyIdToken,
   })),
 }));
 

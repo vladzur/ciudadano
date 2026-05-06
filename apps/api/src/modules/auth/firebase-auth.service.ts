@@ -1,16 +1,23 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import * as admin from "firebase-admin";
+import { initializeApp, getApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import type { App } from "firebase-admin/app";
+import type { DecodedIdToken } from "firebase-admin/auth";
 import { pool } from "@ciudadano/database";
 import type { ICitizenUser } from "@ciudadano/shared";
 
 @Injectable()
 export class FirebaseAuthService {
-  private firebaseApp: admin.app.App;
+  private firebaseApp: App;
 
   constructor(private configService: ConfigService) {
     const projectId = this.configService.get<string>("gcs.projectId");
-    this.firebaseApp = admin.initializeApp({ projectId });
+    try {
+      this.firebaseApp = initializeApp({ projectId });
+    } catch {
+      this.firebaseApp = getApp();
+    }
   }
 
   /** Verifica token Firebase ID y hace upsert del usuario ciudadano */
@@ -18,9 +25,9 @@ export class FirebaseAuthService {
     citizenUser: ICitizenUser;
     firebaseUid: string;
   }> {
-    let decoded: admin.auth.DecodedIdToken;
+    let decoded: DecodedIdToken;
     try {
-      decoded = await this.firebaseApp.auth().verifyIdToken(idToken);
+      decoded = await getAuth(this.firebaseApp).verifyIdToken(idToken);
     } catch {
       throw new UnauthorizedException("Token de Firebase inválido.");
     }
