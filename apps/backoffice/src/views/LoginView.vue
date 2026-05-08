@@ -70,6 +70,15 @@ async function handleSubmit() {
           {{ loading ? "Ingresando..." : "Ingresar" }}
         </button>
       </form>
+
+      <div class="text-center mt-6">
+        <router-link
+          to="/register"
+          class="text-sm text-green-700 hover:text-green-800 font-medium"
+        >
+          ¿No tienes cuenta? Regístrate
+        </router-link>
+      </div>
     </div>
   </div>
 </template>

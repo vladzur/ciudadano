@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "./src/client.ts",
-  "types": "./src/client.ts",
+  "main": "./dist/client.js",
+  "types": "./dist/client.d.ts",
   "scripts": {
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed.ts",

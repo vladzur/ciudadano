@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
+import { ReportCategory, ReportStatus } from "@ciudadano/shared";
 import { useReportsStore } from "./reports.js";
 
 // Mock del servicio API
@@ -25,8 +26,8 @@ describe("useReportsStore", () => {
     description: "Bache profundo",
     location: { lat: -39.2785, lng: -72.2284 },
     image_url: null,
-    category: "Baches",
-    status: "pending",
+    category: ReportCategory.BACHES,
+    status: ReportStatus.PENDING,
     created_at: "2025-01-15T00:00:00Z",
     updated_at: "2025-01-15T00:00:00Z",
   };

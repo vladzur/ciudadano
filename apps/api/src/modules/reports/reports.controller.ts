@@ -23,14 +23,17 @@ import type { CreateReportDto, ReportQueryParams, UpdateReportStatusDto, CreateN
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  /** POST /api/v1/reports - Ciudadano crea denuncia (público) */
+  /** POST /api/v1/reports - Ciudadano autenticado crea denuncia */
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor("image"))
   async create(
     @Body() dto: CreateReportDto,
-    @UploadedFile() image?: Express.Multer.File
+    @UploadedFile() image?: Express.Multer.File,
+    @Request() req?: any
   ) {
-    return { success: true, data: await this.reportsService.create(dto, image) };
+    const citizenUserId = req.user?.sub;
+    return { success: true, data: await this.reportsService.create(dto, image, citizenUserId) };
   }
 
   /** GET /api/v1/reports - Listar denuncias (admin autenticado) */

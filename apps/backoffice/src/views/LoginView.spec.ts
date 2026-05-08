@@ -4,8 +4,8 @@ import { setActivePinia, createPinia } from "pinia";
 
 // Mock del composable useAuth
 const mockLogin = vi.fn();
-const mockError = vi.fn(() => null);
-const mockLoading = vi.fn(() => false);
+const mockError = vi.fn<() => string | null>(() => null);
+const mockLoading = vi.fn<() => boolean>(() => false);
 
 vi.mock("../composables/useAuth", () => ({
   useAuth: () => ({

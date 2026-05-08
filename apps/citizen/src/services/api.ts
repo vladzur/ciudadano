@@ -6,6 +6,32 @@ const api = axios.create({
   timeout: 30000,
 });
 
+/** Interceptor: adjunta token JWT de ciudadano a cada request */
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("citizenAccessToken");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+/** Interceptor: limpia sesión si el token expiró */
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("citizenAccessToken");
+    }
+    return Promise.reject(error);
+  }
+);
+
+/** Intercambia token Firebase por JWT del backend */
+export async function citizenLogin(idToken: string): Promise<{ accessToken: string; user: any }> {
+  const { data } = await api.post("/auth/citizen", { idToken });
+  return data.data;
+}
+
 /** Envía una denuncia con imagen opcional */
 export async function submitReport(data: {
   description: string;

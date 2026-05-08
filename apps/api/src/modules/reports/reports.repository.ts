@@ -30,13 +30,14 @@ export class ReportsRepository {
     latitude: number;
     longitude: number;
     imageUrl?: string;
+    citizenUserId?: string;
   }): Promise<IReport> {
     const result = await pool.query(
-      `INSERT INTO reports (description, category, location, image_url)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5)
+      `INSERT INTO reports (description, category, location, image_url, citizen_user_id)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
        RETURNING id, description, ST_Y(location) as lat, ST_X(location) as lng,
                  image_url, category, status, created_at, updated_at`,
-      [data.description, data.category, data.longitude, data.latitude, data.imageUrl ?? null]
+      [data.description, data.category, data.longitude, data.latitude, data.imageUrl ?? null, data.citizenUserId ?? null]
     );
     return this.mapReport(result.rows[0]);
   }

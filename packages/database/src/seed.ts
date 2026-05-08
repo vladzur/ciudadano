@@ -7,8 +7,8 @@ async function seed(): Promise<void> {
   // Crear usuario admin por defecto
   const adminPassword = await bcrypt.hash("admin123", 10);
   await pool.query(
-    `INSERT INTO admin_users (email, password, name, role)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO admin_users (email, password, name, role, status)
+     VALUES ($1, $2, $3, $4, 'active')
      ON CONFLICT (email) DO NOTHING`,
     ["admin@villarrica.cl", adminPassword, "Administrador", "admin"]
   );

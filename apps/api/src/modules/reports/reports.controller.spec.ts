@@ -40,6 +40,8 @@ describe("ReportsController", () => {
   });
 
   describe("create", () => {
+    const mockReq = { user: { sub: "citizen-uuid-1" } };
+
     it("should create report and return wrapped response", async () => {
       const dto = {
         description: "Bache profundo en la calle",
@@ -49,13 +51,13 @@ describe("ReportsController", () => {
       };
       (reportsService.create as jest.Mock).mockResolvedValue(mockReport);
 
-      const result = await controller.create(dto);
+      const result = await controller.create(dto, undefined, mockReq);
 
-      expect(reportsService.create).toHaveBeenCalledWith(dto, undefined);
+      expect(reportsService.create).toHaveBeenCalledWith(dto, undefined, "citizen-uuid-1");
       expect(result).toEqual({ success: true, data: mockReport });
     });
 
-    it("should pass image file to service", async () => {
+    it("should pass image file and citizen user id to service", async () => {
       const dto = {
         description: "Bache profundo en la calle",
         category: "Baches",
@@ -65,9 +67,9 @@ describe("ReportsController", () => {
       const image = {} as Express.Multer.File;
       (reportsService.create as jest.Mock).mockResolvedValue(mockReport);
 
-      await controller.create(dto, image);
+      await controller.create(dto, image, mockReq);
 
-      expect(reportsService.create).toHaveBeenCalledWith(dto, image);
+      expect(reportsService.create).toHaveBeenCalledWith(dto, image, "citizen-uuid-1");
     });
   });
 

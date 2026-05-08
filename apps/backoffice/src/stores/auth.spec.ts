@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
+import { UserRole, AdminUserStatus } from "@ciudadano/shared";
 import { useAuthStore } from "./auth.js";
 
 // Mock del servicio API
@@ -44,6 +45,7 @@ describe("useAuthStore", () => {
         email: "admin@villarrica.cl",
         name: "Admin",
         role: "admin" as const,
+        status: AdminUserStatus.ACTIVE,
         created_at: "2025-01-01T00:00:00Z",
       },
     };
@@ -86,7 +88,7 @@ describe("useAuthStore", () => {
       localStorage.setItem("accessToken", "test");
       localStorage.setItem("refreshToken", "test");
       const store = useAuthStore();
-      store.$patch({ accessToken: "test", refreshToken: "test", user: { id: "1", email: "a@b.cl", name: "X", role: "admin", created_at: "2025-01-01T00:00:00Z" } });
+      store.$patch({ accessToken: "test", refreshToken: "test", user: { id: "1", email: "a@b.cl", name: "X", role: UserRole.ADMIN, status: AdminUserStatus.ACTIVE, created_at: "2025-01-01T00:00:00Z" } });
 
       store.logout();
 
