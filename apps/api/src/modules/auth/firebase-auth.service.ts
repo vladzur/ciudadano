@@ -13,6 +13,12 @@ export class FirebaseAuthService {
 
   constructor(private configService: ConfigService) {
     const projectId = this.configService.get<string>("gcs.projectId");
+    // Conectar al emulador de Firebase Auth si está configurado
+    const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+    if (authEmulatorHost) {
+      process.env.FIREBASE_AUTH_EMULATOR_HOST = authEmulatorHost;
+      console.log(`Firebase Auth: usando emulador en ${authEmulatorHost}`);
+    }
     try {
       this.firebaseApp = initializeApp({ projectId });
     } catch {

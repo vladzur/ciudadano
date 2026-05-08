@@ -35,11 +35,12 @@ export function configuration(): AppConfig {
     JWT_SECRET: Joi.string().required(),
     JWT_EXPIRATION: Joi.string().default("15m"),
     JWT_REFRESH_EXPIRATION: Joi.string().default("7d"),
+    FIREBASE_AUTH_EMULATOR_HOST: Joi.string().optional(),
   });
 
   const { value, error } = schema.validate(process.env, {
     allowUnknown: true,
-    stripUnknown: true,
+    stripUnknown: false,
   });
 
   if (error) {

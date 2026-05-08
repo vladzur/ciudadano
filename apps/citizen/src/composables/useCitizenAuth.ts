@@ -23,9 +23,13 @@ onAuthStateChanged(auth, (firebaseUser) => {
     firebaseUser.getIdToken().then((idToken) => {
       citizenLogin(idToken).then((response) => {
         localStorage.setItem("citizenAccessToken", response.accessToken);
-      }).catch(() => {
+        console.log("JWT ciudadano almacenado correctamente");
+      }).catch((err) => {
+        console.error("Error al obtener JWT del backend:", err);
         localStorage.removeItem("citizenAccessToken");
       });
+    }).catch((err) => {
+      console.error("Error al obtener Firebase ID token:", err);
     });
   } else {
     localStorage.removeItem("citizenAccessToken");
