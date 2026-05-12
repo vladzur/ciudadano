@@ -20,13 +20,13 @@ jobs:
         run: |
           gcloud run services update-traffic ciudadano-api \
             --to-revisions ${{ github.event.inputs.revision }}=100 \
-            --region southamerica-east1
+            --region southamerica-west1
           echo "Tráfico revertido a la revisión ${{ github.event.inputs.revision }}"
 
       - name: Verify rollback health
         run: |
           URL=$(gcloud run services describe ciudadano-api \
-            --region southamerica-east1 \
+            --region southamerica-west1 \
             --format 'value(status.url)')
           echo "Verificando health check en $URL/api/v1/health"
           for i in 1 2 3 4 5; do
