@@ -59,7 +59,6 @@ jobs:
         run: |
           cat <<EOF > env-vars.yaml
           NODE_ENV: production
-          PORT: "3000"
           DB_HOST: "${{ secrets.DB_HOST }}"
           DB_PORT: "${{ secrets.DB_PORT }}"
           DB_NAME: "${{ secrets.DB_NAME }}"
@@ -77,6 +76,7 @@ jobs:
             --image southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api:${{ github.sha }} \
             --region southamerica-west1 \
             --platform managed \
+            --port 3000 \
             --allow-unauthenticated \
             --vpc-connector projects/denuncia-ciudadana-5fa44/locations/southamerica-west1/connectors/ciudadano-vpc-connector \
             --vpc-egress private-ranges-only \
