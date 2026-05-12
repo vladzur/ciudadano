@@ -1,4 +1,4 @@
-name: Deploy to Cloud Run
+name: Deploy
 
 on:
   push:
@@ -6,46 +6,124 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-api:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9.15.0
+          version: "9.15.0"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "pnpm"
 
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-deploy-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-deploy-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
+      - name: Build all packages
         run: pnpm build
+
+  deploy-api:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Configure Docker
-        run: gcloud auth configure-docker southamerica-east1-docker.pkg.dev
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker southamerica-west1-docker.pkg.dev
 
       - name: Build and push Docker image
         run: |
-          docker build -t southamerica-east1-docker.pkg.dev/villarrica-denuncia-ciudadana/api/api:${{ github.sha }} -f apps/api/Dockerfile .
-          docker push southamerica-east1-docker.pkg.dev/villarrica-denuncia-ciudadana/api/api:${{ github.sha }}
+          IMAGE="southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api"
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest -f apps/api/Dockerfile .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
 
       - name: Deploy to Cloud Run
+        run: >
+          gcloud run deploy ciudadano-api
+          --image southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api:${{ github.sha }}
+          --region southamerica-west1
+          --platform managed
+          --allow-unauthenticated
+          --vpc-connector projects/denuncia-ciudadana-5fa44/locations/southamerica-west1/connectors/ciudadano-vpc-connector
+          --vpc-egress private-ranges-only
+          --set-env-vars
+          NODE_ENV=production,PORT=3000,DB_HOST=${{ secrets.DB_HOST }},DB_PORT=${{ secrets.DB_PORT }},DB_NAME=${{ secrets.DB_NAME }},DB_USER=${{ secrets.DB_USER }},DB_PASSWORD=${{ secrets.DB_PASSWORD }},GCS_BUCKET=${{ secrets.GCS_BUCKET }},GCS_PROJECT_ID=denuncia-ciudadana-5fa44,JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }},JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }},CORS_ORIGINS=${{ secrets.CORS_ORIGINS }},RUN_MIGRATIONS=true
+
+      - name: Verify deployment health
         run: |
-          gcloud run deploy ciudadano-api \
-            --image southamerica-east1-docker.pkg.dev/villarrica-denuncia-ciudadana/api/api:${{ github.sha }} \
-            --region southamerica-east1 \
-            --platform managed \
-            --allow-unauthenticated \
-            --set-env-vars "DB_HOST=${{ secrets.DB_HOST }},DB_NAME=${{ secrets.DB_NAME }},DB_USER=${{ secrets.DB_USER }},DB_PASSWORD=${{ secrets.DB_PASSWORD }},GCS_BUCKET=${{ secrets.GCS_BUCKET }},GCS_PROJECT_ID=villarrica-denuncia-ciudadana,JWT_SECRET=${{ secrets.JWT_SECRET }}"
+          URL=$(gcloud run services describe ciudadano-api \
+            --region southamerica-west1 \
+            --format 'value(status.url)')
+          echo "Verificando health check en $URL/api/v1/health"
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/api/v1/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check exitoso (intento $i)"
+              exit 0
+            fi
+            echo "Intento $i: status $STATUS, reintentando..."
+            sleep 10
+          done
+          echo "Health check falló tras 5 intentos"
+          exit 1
+
+  deploy-frontends:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [citizen, backoffice]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-deploy-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-deploy-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build ${{ matrix.app }}
+        run: pnpm --filter @ciudadano/${{ matrix.app }} build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      - name: Deploy to Firebase Hosting
+        run: npx firebase-tools deploy --only hosting:${{ matrix.app }} --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

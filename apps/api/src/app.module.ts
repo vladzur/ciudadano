@@ -4,6 +4,7 @@ import { ReportsModule } from "./modules/reports/reports.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
 import { StorageModule } from "./modules/storage/storage.module.js";
 import { ReportsAnalyticsModule } from "./modules/reports-analytics/reports-analytics.module.js";
+import { HealthModule } from "./modules/health/health.module.js";
 import { configuration } from "./config/configuration.js";
 
 @Module({
@@ -17,6 +18,7 @@ import { configuration } from "./config/configuration.js";
     AuthModule,
     StorageModule,
     ReportsAnalyticsModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

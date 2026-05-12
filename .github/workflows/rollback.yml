@@ -1,0 +1,42 @@
+name: Rollback API
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Cloud Run revision a la que revertir (ej: ciudadano-api-00042-abc)"
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Rollback to revision
+        run: |
+          gcloud run services update-traffic ciudadano-api \
+            --to-revisions ${{ github.event.inputs.revision }}=100 \
+            --region southamerica-east1
+          echo "Tráfico revertido a la revisión ${{ github.event.inputs.revision }}"
+
+      - name: Verify rollback health
+        run: |
+          URL=$(gcloud run services describe ciudadano-api \
+            --region southamerica-east1 \
+            --format 'value(status.url)')
+          echo "Verificando health check en $URL/api/v1/health"
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/api/v1/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check exitoso (intento $i)"
+              exit 0
+            fi
+            echo "Intento $i: status $STATUS, reintentando..."
+            sleep 10
+          done
+          echo "Health check falló tras 5 intentos"
+          exit 1

@@ -5,26 +5,67 @@ import { pool } from "./client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-async function migrate(): Promise<void> {
+/** Ejecuta migraciones pendientes de forma idempotente */
+export async function migrate(): Promise<void> {
+  // Crear tabla de seguimiento si no existe
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      name TEXT PRIMARY KEY,
+      executed_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   const migrationsDir = join(__dirname, "migrations");
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
 
-  console.log(`📦 Ejecutando ${files.length} migraciones...`);
+  // Obtener migraciones ya ejecutadas
+  const { rows: executed } = await pool.query<{ name: string }>(
+    "SELECT name FROM _migrations"
+  );
+  const executedNames = new Set(executed.map((r) => r.name));
 
-  for (const file of files) {
-    const sql = readFileSync(join(migrationsDir, file), "utf-8");
-    console.log(`  ▶ ${file}`);
-    await pool.query(sql);
-    console.log(`  ✓ ${file} completada`);
+  const pending = files.filter((f) => !executedNames.has(f));
+
+  if (pending.length === 0) {
+    console.log("No hay migraciones pendientes");
+    return;
   }
 
-  console.log("✅ Migraciones completadas");
-  await pool.end();
+  console.log(`Ejecutando ${pending.length} migraciones pendientes...`);
+
+  for (const file of pending) {
+    const sql = readFileSync(join(migrationsDir, file), "utf-8");
+    console.log(`  ▶ ${file}`);
+
+    // Ejecutar migración y registrar en una transacción
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(sql);
+      await client.query("INSERT INTO _migrations (name) VALUES ($1)", [file]);
+      await client.query("COMMIT");
+      console.log(`  ✓ ${file} completada`);
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error(`  ✗ ${file} falló:`, err);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  console.log("Migraciones completadas");
 }
 
-migrate().catch((err) => {
-  console.error("❌ Error en migraciones:", err);
-  process.exit(1);
-});
+// Ejecución directa por CLI
+const isMain = process.argv[1]?.includes("migrate");
+if (isMain) {
+  migrate()
+    .then(() => pool.end())
+    .catch((err) => {
+      console.error("Error en migraciones:", err);
+      process.exit(1);
+    });
+}
