@@ -94,6 +94,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - uses: pnpm/action-setup@v4
         with:
           version: "9.15.0"
@@ -125,5 +130,3 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         run: npx firebase-tools deploy --only hosting:${{ matrix.app }} --non-interactive
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
