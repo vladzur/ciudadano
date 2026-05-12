@@ -1,9 +1,9 @@
 {
   "projects": {
-    "default": "denuncia-ciudadana"
+    "default": "denuncia-ciudadana-5fa44"
   },
   "targets": {
-    "denuncia-ciudadana": {
+    "denuncia-ciudadana-5fa44": {
       "hosting": {
         "citizen": ["ciudadano-villarrica"],
         "backoffice": ["backoffice-villarrica"]

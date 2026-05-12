@@ -56,16 +56,31 @@ jobs:
           docker push $IMAGE:latest
 
       - name: Deploy to Cloud Run
-        run: >
-          gcloud run deploy ciudadano-api
-          --image southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api:${{ github.sha }}
-          --region southamerica-west1
-          --platform managed
-          --allow-unauthenticated
-          --vpc-connector projects/denuncia-ciudadana-5fa44/locations/southamerica-west1/connectors/ciudadano-vpc-connector
-          --vpc-egress private-ranges-only
-          --set-env-vars
-          NODE_ENV=production,PORT=3000,DB_HOST=${{ secrets.DB_HOST }},DB_PORT=${{ secrets.DB_PORT }},DB_NAME=${{ secrets.DB_NAME }},DB_USER=${{ secrets.DB_USER }},DB_PASSWORD=${{ secrets.DB_PASSWORD }},GCS_BUCKET=${{ secrets.GCS_BUCKET }},GCS_PROJECT_ID=denuncia-ciudadana-5fa44,JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION }},JWT_REFRESH_EXPIRATION=${{ secrets.JWT_REFRESH_EXPIRATION }},CORS_ORIGINS=${{ secrets.CORS_ORIGINS }},RUN_MIGRATIONS=true
+        run: |
+          cat <<EOF > env-vars.yaml
+          NODE_ENV: production
+          PORT: "3000"
+          DB_HOST: "${{ secrets.DB_HOST }}"
+          DB_PORT: "${{ secrets.DB_PORT }}"
+          DB_NAME: "${{ secrets.DB_NAME }}"
+          DB_USER: "${{ secrets.DB_USER }}"
+          DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
+          GCS_BUCKET: "${{ secrets.GCS_BUCKET }}"
+          GCS_PROJECT_ID: denuncia-ciudadana-5fa44
+          JWT_SECRET: "${{ secrets.JWT_SECRET }}"
+          JWT_EXPIRATION: "${{ secrets.JWT_EXPIRATION }}"
+          JWT_REFRESH_EXPIRATION: "${{ secrets.JWT_REFRESH_EXPIRATION }}"
+          CORS_ORIGINS: "${{ secrets.CORS_ORIGINS }}"
+          RUN_MIGRATIONS: "true"
+          EOF
+          gcloud run deploy ciudadano-api \
+            --image southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api:${{ github.sha }} \
+            --region southamerica-west1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --vpc-connector projects/denuncia-ciudadana-5fa44/locations/southamerica-west1/connectors/ciudadano-vpc-connector \
+            --vpc-egress private-ranges-only \
+            --env-vars-file env-vars.yaml
 
       - name: Verify deployment health
         run: |
