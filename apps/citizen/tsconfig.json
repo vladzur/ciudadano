@@ -9,5 +9,6 @@
       "@ciudadano/shared": ["../../packages/shared/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts", "../../packages/shared/src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts", "../../packages/shared/src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"]
 }

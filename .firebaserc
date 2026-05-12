@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "denuncia-ciudadana"
+  },
+  "targets": {
+    "denuncia-ciudadana": {
+      "hosting": {
+        "citizen": ["ciudadano-villarrica"],
+        "backoffice": ["backoffice-villarrica"]
+      }
+    }
   }
 }
