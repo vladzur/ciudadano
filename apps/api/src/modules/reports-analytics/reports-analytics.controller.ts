@@ -87,7 +87,7 @@ export class ReportsAnalyticsController {
   }
 
   /** GET /api/v1/storage/signed-url/:key - Obtener Signed URL */
-  @Get("storage/signed-url/:key")
+  @Get("storage/signed-url/:key(*)")
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin", "staff")
   async getSignedUrl(@Param("key") key: string) {
