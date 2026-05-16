@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, connectAuthEmulator, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,10 +11,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Conectar al emulador de Firebase Auth en desarrollo
-if (import.meta.env.DEV) {
-  connectAuthEmulator(auth, "http://localhost:9099");
-}
+// NOTA: El emulador de Firebase Auth NO soporta signInWithPopup con Google real.
+// Activarlo impide que el login con Google funcione en desarrollo.
+// Sólo activa el emulador si usas usuarios emulados (sin proveedores OAuth reales).
+// if (import.meta.env.DEV) {
+//   connectAuthEmulator(auth, "http://localhost:9099");
+// }
 
 export const googleProvider = new GoogleAuthProvider();
 export const facebookProvider = new FacebookAuthProvider();
