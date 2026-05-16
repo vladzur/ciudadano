@@ -113,6 +113,14 @@ describe("StorageService", () => {
       expect(url).toBe("https://signed.url/access");
     });
 
+    it("should strip leading slash from object key", async () => {
+      mockBucket.getSignedUrl.mockResolvedValue(["https://signed.url/access"]);
+
+      await service.getSignedUrl("/reports/uuid.jpg");
+
+      expect(mockBucket.file).toHaveBeenCalledWith("reports/uuid.jpg");
+    });
+
     it("should propagate GCS signed URL errors", async () => {
       mockBucket.getSignedUrl.mockRejectedValue(new Error("Permission denied"));
 
