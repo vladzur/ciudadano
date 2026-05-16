@@ -6,9 +6,11 @@ import { useCitizenAuth } from "../composables/useCitizenAuth";
 const { isAuthenticated, loading, error, loginWithGoogle, loginWithFacebook } = useCitizenAuth();
 const router = useRouter();
 
+// { immediate: true } asegura que si el usuario ya está autenticado al montar
+// la vista (p.ej. recarga de página), se redirige de inmediato sin esperar un cambio.
 watch(isAuthenticated, (val) => {
   if (val) router.push("/");
-});
+}, { immediate: true });
 </script>
 
 <template>
