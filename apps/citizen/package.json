@@ -14,11 +14,13 @@
     "@ciudadano/shared": "workspace:*",
     "axios": "^1.7.0",
     "firebase": "^12.12.1",
+    "leaflet": "^1.9.0",
     "vue": "^3.5.0",
     "vue-router": "^4.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/leaflet": "^1.9.0",
     "@vitejs/plugin-vue": "^5.2.0",
     "@vue/test-utils": "^2.4.10",
     "happy-dom": "^20.9.0",
