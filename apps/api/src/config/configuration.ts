@@ -13,6 +13,7 @@ export interface AppConfig {
   gcs: {
     bucket: string;
     projectId: string;
+    serviceAccountKey?: string;
   };
   jwt: {
     secret: string;
@@ -32,6 +33,7 @@ export function configuration(): AppConfig {
     DB_PASSWORD: Joi.string().default("postgres"),
     GCS_BUCKET: Joi.string().required(),
     GCS_PROJECT_ID: Joi.string().required(),
+    GCS_SERVICE_ACCOUNT_KEY: Joi.string().optional(),
     JWT_SECRET: Joi.string().required(),
     JWT_EXPIRATION: Joi.string().default("15m"),
     JWT_REFRESH_EXPIRATION: Joi.string().default("7d"),
@@ -59,6 +61,7 @@ export function configuration(): AppConfig {
     gcs: {
       bucket: value.GCS_BUCKET,
       projectId: value.GCS_PROJECT_ID,
+      serviceAccountKey: value.GCS_SERVICE_ACCOUNT_KEY,
     },
     jwt: {
       secret: value.JWT_SECRET,
