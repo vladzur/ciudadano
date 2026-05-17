@@ -32,7 +32,9 @@ export function useHeatmap(containerId: string) {
       container.style.height = "500px";
     }
 
-    map = L.map(container).setView(VILLARRICA_CENTER, 14);
+    map = L.map(container, {
+      attributionControl: false,
+    }).setView(VILLARRICA_CENTER, 14);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
