@@ -18,6 +18,21 @@ describe("LocationDisplay", () => {
     expect(wrapper.text()).toContain("-72.2284");
   });
 
+  it("should show manual location text when isManual is true", () => {
+    const wrapper = mount(LocationDisplay, {
+      props: {
+        latitude: -39.2785,
+        longitude: -72.2284,
+        loading: false,
+        error: null,
+        isManual: true,
+      },
+    });
+
+    expect(wrapper.text()).toContain("Ubicación manual");
+    expect(wrapper.text()).not.toContain("Ubicación obtenida");
+  });
+
   it("should show loading state", () => {
     const wrapper = mount(LocationDisplay, {
       props: {
@@ -67,8 +82,30 @@ describe("LocationDisplay", () => {
       },
     });
 
-    await wrapper.find("button").trigger("click");
+    // El botón de reintentar tiene texto "Reintentar"
+    const retryButton = wrapper.findAll("button").find((btn) => btn.text() === "Reintentar");
+    expect(retryButton?.exists()).toBe(true);
+    await retryButton?.trigger("click");
     expect(wrapper.emitted("retry")).toBeTruthy();
+  });
+
+  it("should emit openMap when map icon button is clicked", async () => {
+    const wrapper = mount(LocationDisplay, {
+      props: {
+        latitude: -39.2785,
+        longitude: -72.2284,
+        loading: false,
+        error: null,
+      },
+    });
+
+    // Buscar el botón del mapa (el que tiene el title "Seleccionar ubicación en el mapa")
+    const allButtons = wrapper.findAll("button");
+    // El botón del mapa siempre está presente (no tiene texto, solo SVG)
+    const mapButton = allButtons.find((btn) => !btn.text() || btn.attributes("title") === "Seleccionar ubicación en el mapa");
+    expect(mapButton?.exists()).toBe(true);
+    await mapButton?.trigger("click");
+    expect(wrapper.emitted("openMap")).toBeTruthy();
   });
 
   it("should show default message when no coordinates and no error", () => {
@@ -84,7 +121,7 @@ describe("LocationDisplay", () => {
     expect(wrapper.text()).toContain("Sin ubicación");
   });
 
-  it("should not show retry button when there is no error", () => {
+  it("should always show the map selector button even without errors", () => {
     const wrapper = mount(LocationDisplay, {
       props: {
         latitude: -39.2785,
@@ -94,6 +131,8 @@ describe("LocationDisplay", () => {
       },
     });
 
-    expect(wrapper.find("button").exists()).toBe(false);
+    // El botón del mapa siempre debe estar presente
+    const mapButton = wrapper.find("button[title='Seleccionar ubicación en el mapa']");
+    expect(mapButton.exists()).toBe(true);
   });
 });
