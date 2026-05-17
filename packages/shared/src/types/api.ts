@@ -49,6 +49,7 @@ export interface ReportQueryParams {
 
 /** Datos para el mapa de calor */
 export interface HeatmapPoint {
+  id: string;
   lat: number;
   lng: number;
   intensity: number;
