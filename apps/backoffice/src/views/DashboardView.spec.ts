@@ -4,6 +4,11 @@ import { setActivePinia, createPinia } from "pinia";
 import { useReportsStore } from "../stores/reports";
 import DashboardView from "./DashboardView.vue";
 
+// Mock vue-router
+vi.mock("vue-router", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // Mock leaflet
 vi.mock("leaflet", () => ({
   default: {
@@ -11,14 +16,22 @@ vi.mock("leaflet", () => ({
       setView: vi.fn().mockReturnThis(),
       remove: vi.fn(),
       removeLayer: vi.fn().mockReturnThis(),
+      addLayer: vi.fn().mockReturnThis(),
     }),
     tileLayer: vi.fn().mockReturnValue({
       addTo: vi.fn().mockReturnThis(),
     }),
+    marker: vi.fn().mockReturnValue({
+      on: vi.fn().mockReturnThis(),
+    }),
+    markerClusterGroup: vi.fn().mockReturnValue({
+      addLayer: vi.fn().mockReturnThis(),
+      clearLayers: vi.fn(),
+    }),
   },
 }));
 
-vi.mock("leaflet.heat", () => ({}));
+vi.mock("leaflet.markercluster", () => ({}));
 
 // Mock API
 vi.mock("../services/api", () => ({
@@ -76,10 +89,16 @@ describe("DashboardView", () => {
     expect(wrapper.text()).toContain("15");
   });
 
-  it("should render heatmap container", () => {
+  it("should render map container", () => {
     const wrapper = mount(DashboardView);
 
     expect(wrapper.find("#heatmap-container-wrapper").exists()).toBe(true);
+  });
+
+  it("should render map title as Mapa de Denuncias", () => {
+    const wrapper = mount(DashboardView);
+
+    expect(wrapper.text()).toContain("Mapa de Denuncias");
   });
 
   it("should render category filter buttons", () => {
