@@ -63,7 +63,7 @@ const kpiCards = computed(() => [
     <!-- Mapa de calor -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-800">Mapa de Calor</h3>
+        <h3 class="text-lg font-semibold text-gray-800">Mapa de Denuncias</h3>
         <div class="flex gap-2">
           <button
             class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-300 transition-colors"
