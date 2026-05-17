@@ -4,10 +4,12 @@ defineProps<{
   longitude: number | null;
   loading: boolean;
   error: string | null;
+  isManual?: boolean;
 }>();
 
 defineEmits<{
   retry: [];
+  openMap: [];
 }>();
 </script>
 
@@ -39,7 +41,9 @@ defineEmits<{
         </div>
       </template>
       <template v-else-if="latitude">
-        <p class="text-sm font-medium text-gray-700">Ubicación obtenida</p>
+        <p class="text-sm font-medium text-gray-700">
+          {{ isManual ? "Ubicación manual" : "Ubicación obtenida" }}
+        </p>
         <p class="text-xs text-gray-500 truncate">
           {{ latitude.toFixed(4) }}, {{ longitude!.toFixed(4) }}
         </p>
@@ -56,6 +60,18 @@ defineEmits<{
       @click="$emit('retry')"
     >
       Reintentar
+    </button>
+
+    <!-- Botón de selección manual en mapa -->
+    <button
+      class="flex-shrink-0 w-10 h-10 rounded-full border-2 border-green-300 bg-white hover:bg-green-50 flex items-center justify-center text-green-700 transition-colors"
+      title="Seleccionar ubicación en el mapa"
+      @click="$emit('openMap')"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
     </button>
   </div>
 </template>

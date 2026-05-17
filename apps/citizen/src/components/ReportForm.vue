@@ -11,6 +11,7 @@ import { CATEGORIES } from "@ciudadano/shared";
 import CameraCapture from "./CameraCapture.vue";
 import CategorySelector from "./CategorySelector.vue";
 import LocationDisplay from "./LocationDisplay.vue";
+import MapSelector from "./MapSelector.vue";
 
 const router = useRouter();
 const { latitude, longitude, error: geoError, loading: geoLoading, getPosition } = useGeolocation();
@@ -23,6 +24,15 @@ const selectedCategory = ref<string>("");
 const description = ref("");
 const photoFile = ref<File | null>(null);
 const showCamera = ref(false);
+
+// Estado del selector de mapa
+const showMapSelector = ref(false);
+const manualCoords = ref<{ lat: number; lng: number } | null>(null);
+
+// Coordenadas efectivas: prioridad a las manuales, luego GPS
+const effectiveLat = computed(() => manualCoords.value?.lat ?? latitude.value);
+const effectiveLng = computed(() => manualCoords.value?.lng ?? longitude.value);
+const isManualLocation = computed(() => manualCoords.value !== null);
 
 const canProceed = computed(() => {
   if (step.value === "category") return selectedCategory.value !== "";
@@ -41,16 +51,16 @@ function handlePhoto(file: File) {
 }
 
 async function handleSubmit() {
-  if (!latitude.value || !longitude.value) {
+  if (!effectiveLat.value || !effectiveLng.value) {
     await getPosition();
-    if (!latitude.value || !longitude.value) return;
+    if (!effectiveLat.value || !effectiveLng.value) return;
   }
 
   const success = await send({
     description: description.value,
     category: selectedCategory.value,
-    latitude: latitude.value,
-    longitude: longitude.value,
+    latitude: effectiveLat.value,
+    longitude: effectiveLng.value,
     image: photoFile.value ?? undefined,
   });
 
@@ -61,6 +71,11 @@ async function handleSubmit() {
 
 function retryLocation() {
   getPosition();
+}
+
+function onMapConfirm(lat: number, lng: number) {
+  manualCoords.value = { lat, lng };
+  showMapSelector.value = false;
 }
 </script>
 
@@ -90,11 +105,13 @@ function retryLocation() {
 
     <!-- Geolocalización -->
     <LocationDisplay
-      :latitude="latitude"
-      :longitude="longitude"
+      :latitude="effectiveLat"
+      :longitude="effectiveLng"
       :loading="geoLoading"
       :error="geoError"
+      :is-manual="isManualLocation"
       @retry="retryLocation"
+      @open-map="showMapSelector = true"
     />
 
     <!-- Paso 1: Categoría -->
@@ -212,8 +229,9 @@ function retryLocation() {
         </div>
         <div class="bg-gray-50 rounded-xl p-3">
           <span class="text-gray-500">Ubicación:</span>
+          <span v-if="isManualLocation" class="text-xs bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 ml-1">Manual</span>
           <span class="font-medium ml-2">
-            {{ latitude?.toFixed(4) }}, {{ longitude?.toFixed(4) }}
+            {{ effectiveLat?.toFixed(4) }}, {{ effectiveLng?.toFixed(4) }}
           </span>
         </div>
       </div>
@@ -228,7 +246,7 @@ function retryLocation() {
 
       <button
         class="mt-6 w-full bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-        :disabled="sending || !latitude"
+        :disabled="sending || !effectiveLat"
         @click="handleSubmit"
       >
         <svg
@@ -243,5 +261,14 @@ function retryLocation() {
         {{ sending ? "Enviando..." : "Enviar denuncia" }}
       </button>
     </div>
+
+    <!-- Mapa full-screen -->
+    <MapSelector
+      v-if="showMapSelector"
+      :initial-lat="effectiveLat ?? -39.2785"
+      :initial-lng="effectiveLng ?? -72.2284"
+      @confirm="onMapConfirm"
+      @cancel="showMapSelector = false"
+    />
   </div>
 </template>
