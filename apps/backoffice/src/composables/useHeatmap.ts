@@ -1,20 +1,22 @@
 import { ref, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import L from "leaflet";
-import "leaflet.heat";
+import "leaflet.markercluster";
 import { fetchHeatmapData } from "../services/api";
 import type { HeatmapPoint } from "@ciudadano/shared";
 
 /** Coordenadas aproximadas de Villarrica (centro del mapa) */
 const VILLARRICA_CENTER: [number, number] = [-39.2785, -72.2284];
 
-/** Hook para renderizar mapa de calor con Leaflet */
+/** Hook para renderizar marcadores de denuncias con clustering */
 export function useHeatmap(containerId: string) {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const mapLoaded = ref(false);
+  const router = useRouter();
 
   let map: L.Map | null = null;
-  let heatLayer: L.Layer | null = null;
+  let clusterGroup: L.MarkerClusterGroup | null = null;
 
   onMounted(() => {
     const container = document.getElementById(containerId);
@@ -38,6 +40,11 @@ export function useHeatmap(containerId: string) {
       maxZoom: 19,
     }).addTo(map);
 
+    clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 50,
+    });
+    map.addLayer(clusterGroup);
+
     mapLoaded.value = true;
     loadHeatmapData();
   });
@@ -46,23 +53,24 @@ export function useHeatmap(containerId: string) {
     if (map) {
       map.remove();
       map = null;
+      clusterGroup = null;
     }
   });
 
-  /** Carga datos de calor desde la API */
+  /** Carga puntos de denuncias desde la API */
   async function loadHeatmapData(params?: {
     startDate?: string;
     endDate?: string;
     category?: string;
   }): Promise<void> {
-    if (!map) return;
+    if (!map || !clusterGroup) return;
 
     loading.value = true;
     error.value = null;
 
     try {
       const points = await fetchHeatmapData(params);
-      renderHeatmap(points);
+      renderMarkers(points);
     } catch (err: unknown) {
       error.value =
         err instanceof Error ? err.message : "Error al cargar datos del mapa.";
@@ -71,33 +79,18 @@ export function useHeatmap(containerId: string) {
     }
   }
 
-  /** Renderiza capa de calor en el mapa */
-  function renderHeatmap(points: HeatmapPoint[]): void {
-    if (!map) return;
+  /** Renderiza marcadores con clustering en el mapa */
+  function renderMarkers(points: HeatmapPoint[]): void {
+    if (!clusterGroup) return;
 
-    if (heatLayer) {
-      map.removeLayer(heatLayer);
-      heatLayer = null;
-    }
+    clusterGroup.clearLayers();
 
-    const heatPoints: [number, number, number][] = points.map((p) => [
-      p.lat,
-      p.lng,
-      p.intensity,
-    ]);
-
-    if (heatPoints.length > 0) {
-      heatLayer = (L as any).heatLayer(heatPoints, {
-        radius: 25,
-        blur: 15,
-        maxZoom: 10,
-        gradient: {
-          0.2: "#2ecc71",
-          0.4: "#f1c40f",
-          0.6: "#e67e22",
-          0.8: "#e74c3c",
-        },
-      }).addTo(map);
+    for (const point of points) {
+      const marker = L.marker([point.lat, point.lng]);
+      marker.on("click", () => {
+        router.push(`/reports/${point.id}`);
+      });
+      clusterGroup.addLayer(marker);
     }
   }
 
