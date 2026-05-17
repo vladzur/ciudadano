@@ -2,6 +2,8 @@
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 
+/** Helper para exponer URL en el template para vue-tsc */
+const createObjectURL = (blob: Blob): string => URL.createObjectURL(blob);
 import { useGeolocation } from "../composables/useGeolocation";
 import { useCamera } from "../composables/useCamera";
 import { useReport } from "../composables/useReport";
