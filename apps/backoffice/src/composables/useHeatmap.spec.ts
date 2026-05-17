@@ -1,27 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
-import { useHeatmap } from "./useHeatmap.js";
 import type { HeatmapPoint } from "@ciudadano/shared";
 
-// Mock leaflet
+// Mock vue-router
+const mockPush = vi.fn();
+vi.mock("vue-router", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
+// Mock leaflet — objetos son definidos inline para evitar problemas de hoisting
 vi.mock("leaflet", () => {
-  const mapMock = {
-    setView: vi.fn().mockReturnThis(),
-    remove: vi.fn(),
-    removeLayer: vi.fn().mockReturnThis(),
-  };
+  const markerOnMock = vi.fn().mockReturnThis();
   return {
     default: {
-      map: vi.fn().mockReturnValue(mapMock),
+      map: vi.fn().mockReturnValue({
+        setView: vi.fn().mockReturnThis(),
+        remove: vi.fn(),
+        removeLayer: vi.fn().mockReturnThis(),
+        addLayer: vi.fn().mockReturnThis(),
+      }),
       tileLayer: vi.fn().mockReturnValue({
         addTo: vi.fn().mockReturnThis(),
+      }),
+      marker: vi.fn().mockReturnValue({
+        on: markerOnMock,
+      }),
+      markerClusterGroup: vi.fn().mockReturnValue({
+        addLayer: vi.fn().mockReturnThis(),
+        clearLayers: vi.fn(),
       }),
     },
   };
 });
 
-vi.mock("leaflet.heat", () => ({}));
+vi.mock("leaflet.markercluster", () => ({}));
 
 // Mock API
 vi.mock("../services/api", () => ({
@@ -30,6 +43,7 @@ vi.mock("../services/api", () => ({
 
 import L from "leaflet";
 import { fetchHeatmapData } from "../services/api";
+import { useHeatmap } from "./useHeatmap.js";
 
 // Wrapper component that uses the composable
 function createWrapper(containerId = "heatmap-container") {
@@ -74,8 +88,16 @@ describe("useHeatmap", () => {
     expect(L.map).toHaveBeenCalled();
   });
 
+  it("should create markerClusterGroup on mount", () => {
+    createWrapper();
+
+    expect(L.markerClusterGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ maxClusterRadius: 50 })
+    );
+  });
+
   it("should call loadHeatmapData on mount", () => {
-    (fetchHeatmapData as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    vi.mocked(fetchHeatmapData).mockResolvedValue([]);
 
     createWrapper();
 
@@ -83,7 +105,7 @@ describe("useHeatmap", () => {
   });
 
   it("should set error when loadHeatmapData fails", async () => {
-    (fetchHeatmapData as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("API error"));
+    vi.mocked(fetchHeatmapData).mockRejectedValue(new Error("API error"));
     const { result } = createWrapper();
 
     // Wait for the rejected promise to be handled
@@ -93,12 +115,67 @@ describe("useHeatmap", () => {
   });
 
   it("should set loading to false after load", async () => {
-    (fetchHeatmapData as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    vi.mocked(fetchHeatmapData).mockResolvedValue([]);
     const { result } = createWrapper();
 
-    // Esperar a que la promesa se resuelva
     await new Promise((r) => setTimeout(r, 10));
 
     expect(result.loading.value).toBe(false);
+  });
+
+  it("should create markers for each point and add to cluster group", async () => {
+    const points: HeatmapPoint[] = [
+      { id: "uuid-1", lat: -39.2, lng: -72.2, intensity: 1 },
+      { id: "uuid-2", lat: -39.3, lng: -72.3, intensity: 0.5 },
+    ];
+    vi.mocked(fetchHeatmapData).mockResolvedValue(points);
+
+    createWrapper();
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(L.marker).toHaveBeenCalledTimes(2);
+    expect(L.marker).toHaveBeenCalledWith([-39.2, -72.2]);
+    expect(L.marker).toHaveBeenCalledWith([-39.3, -72.3]);
+  });
+
+  it("should clear existing layers before rendering new markers", async () => {
+    vi.mocked(fetchHeatmapData).mockResolvedValue([
+      { id: "uuid-1", lat: -39.2, lng: -72.2, intensity: 1 },
+    ]);
+
+    const { result } = createWrapper();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Segunda carga con diferentes datos
+    vi.mocked(fetchHeatmapData).mockResolvedValue([
+      { id: "uuid-3", lat: -39.4, lng: -72.4, intensity: 1 },
+    ]);
+    await result.loadHeatmapData({ category: "Seguridad" });
+
+    const clusterGroup = (L.markerClusterGroup as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(clusterGroup.clearLayers).toHaveBeenCalled();
+  });
+
+  it("should navigate to report detail on marker click", async () => {
+    const points: HeatmapPoint[] = [
+      { id: "uuid-1", lat: -39.2, lng: -72.2, intensity: 1 },
+    ];
+    vi.mocked(fetchHeatmapData).mockResolvedValue(points);
+
+    createWrapper();
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Verificar que se registró el handler click en el marker
+    expect(L.marker).toHaveBeenCalled();
+    const markerInstance = (L.marker as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(markerInstance.on).toHaveBeenCalledWith("click", expect.any(Function));
+
+    // Simular el click
+    const clickHandler = (markerInstance.on as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    clickHandler();
+
+    expect(mockPush).toHaveBeenCalledWith("/reports/uuid-1");
   });
 });

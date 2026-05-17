@@ -171,7 +171,7 @@ export class ReportsRepository {
     }
 
     const result = await pool.query(
-      `SELECT ST_Y(location) as lat, ST_X(location) as lng,
+      `SELECT id, ST_Y(location) as lat, ST_X(location) as lng,
               CASE status
                 WHEN 'pending' THEN 1.0
                 WHEN 'in_progress' THEN 0.5
