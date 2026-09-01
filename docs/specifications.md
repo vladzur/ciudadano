@@ -12,7 +12,7 @@ Para garantizar escalabilidad, bajo costo de mantenimiento y alta disponibilidad
 *   **Backend:** NestJS (Node.js) ejecutándose en **Google Cloud Run**.
 *   **Frontend (Ciudadano):** Vue 3 + Vite + Tailwind CSS (PWA).
 *   **Frontend (Backoffice):** Vue 3 + Vite + Shadcn/vue.
-*   **Base de Datos:** PostgreSQL con extensión **PostGIS** en **Cloud SQL**.
+*   **Base de Datos:** **Firestore** (Firebase, modo Native, región `southamerica-west1`) — acceso vía Admin SDK desde la API.
 *   **Almacenamiento:** Google Cloud Storage (Bucket para imágenes).
 *   **Mapas:** Leaflet.js (OpenStreetMap) para evitar costos excesivos de Google Maps API.
 
@@ -41,7 +41,7 @@ Para garantizar escalabilidad, bajo costo de mantenimiento y alta disponibilidad
 *   **Seguridad de Datos:** Las imágenes se almacenan de forma privada. El Backoffice accede a ellas mediante **Signed URLs** (URLs con tiempo de expiración).
 *   **Privacidad:** Las denuncias ciudadanas deben cumplir con la normativa de protección de datos personales.
 *   **Disponibilidad:** Uso de Cloud Run para auto-escalado (pago por uso, reduciendo costos a $0 cuando no hay tráfico).
-*   **Geografía:** Sistema de coordenadas estandarizado en **SRID 4326 (WGS84)** para total compatibilidad con PostGIS.
+*   **Geografía:** Sistema de coordenadas estandarizado en **WGS84**, almacenado como `{ lat, lng }` en Firestore.
 
 ---
 
@@ -49,13 +49,13 @@ Para garantizar escalabilidad, bajo costo de mantenimiento y alta disponibilidad
 
 | Campo | Tipo | Descripción |
 | :--- | :--- | :--- |
-| `id` | UUID | Identificador único. |
-| `description` | Text | Detalle del incidente. |
-| `location` | GEOMETRY(Point, 4326) | Coordenadas exactas para análisis espacial. |
+| `id` (doc ID) | UUID v4 | Identificador único (colección `reports`). |
+| `description` | String | Detalle del incidente. |
+| `location` | `{ lat, lng }` | Coordenadas WGS84 (números). |
 | `image_url` | String | Referencia al objeto en Google Cloud Storage. |
-| `status` | Enum | `pending`, `in_progress`, `resolved`. |
+| `status` | String | `pending`, `in_progress`, `resolved`. |
 | `category` | String | Categoría del reporte (Luminarias, etc.). |
-| `created_at` | Timestamp | Fecha y hora del reporte. |
+| `created_at` | Timestamp | Fecha y hora del reporte (ISO en la API). |
 
 ---
 
@@ -63,7 +63,7 @@ Para garantizar escalabilidad, bajo costo de mantenimiento y alta disponibilidad
 
 ### Fase 1: Cimientos (Semana 1)
 *   Configuración del Monorepo y Shared Types.
-*   Despliegue de instancia Cloud SQL con PostGIS activo.
+*   Configuración de Firestore (modo Native) y reglas de seguridad.
 *   Configuración de Buckets de almacenamiento en GCP.
 
 ### Fase 2: Backend y API (Semana 2)
@@ -84,6 +84,6 @@ Para garantizar escalabilidad, bajo costo de mantenimiento y alta disponibilidad
 ---
 
 ## 7. Infraestructura (Resumen de Google Cloud)
-1.  **Project ID:** `villarrica-denuncia-ciudadana`
-2.  **Region:** `southamerica-east1` (Sao Paulo) para baja latencia.
-3.  **Servicios:** Cloud Run (Compute), Cloud SQL (DB), Cloud Storage (Storage), Artifact Registry (Docker Images).
+1.  **Project ID:** `villarrica-ciudadano`
+2.  **Region:** `southamerica-west1` (Santiago) para baja latencia.
+3.  **Servicios:** Cloud Run (Compute), Firestore (DB), Cloud Storage (Storage), Artifact Registry (Docker Images), Firebase Auth + Hosting.

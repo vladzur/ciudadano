@@ -1,28 +1,44 @@
-import { Injectable } from "@nestjs/common";
-import { pool } from "@ciudadano/database";
+import { Inject, Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import type {
+  DocumentData,
+  Firestore,
+  Query,
+  QueryDocumentSnapshot,
+} from "firebase-admin/firestore";
 import type {
   IReport,
   IInternalNote,
   ReportStatus,
   ReportQueryParams,
   HeatmapPoint,
+  ReportStats,
   PaginatedResponse,
 } from "@ciudadano/shared";
+import { ReportStatus as ReportStatusEnum } from "@ciudadano/shared";
+import { FIRESTORE } from "../firebase/firebase.constants.js";
 
-interface ReportRow {
-  id: string;
-  description: string;
-  lat: number;
-  lng: number;
-  image_url: string | null;
-  category: string;
-  status: ReportStatus;
-  created_at: string;
-  updated_at: string;
-}
+const REPORTS_COLLECTION = "reports";
+const NOTES_COLLECTION = "notes";
+
+/** Límites de paginación para proteger el cursor walk */
+const MAX_PAGE = 50;
+const MAX_LIMIT = 1000;
+/** Tamaño de lote para leer colecciones completas */
+const FETCH_BATCH_SIZE = 1000;
+
+/** Intensidad del mapa de calor según estado de la denuncia */
+const HEATMAP_INTENSITY: Record<string, number> = {
+  [ReportStatusEnum.PENDING]: 1.0,
+  [ReportStatusEnum.IN_PROGRESS]: 0.5,
+  [ReportStatusEnum.RESOLVED]: 0.1,
+};
 
 @Injectable()
 export class ReportsRepository {
+  constructor(@Inject(FIRESTORE) private readonly db: Firestore) {}
+
   /** Crea una denuncia con ubicación geográfica */
   async create(data: {
     description: string;
@@ -32,92 +48,69 @@ export class ReportsRepository {
     imageUrl?: string;
     citizenUserId?: string;
   }): Promise<IReport> {
-    const result = await pool.query(
-      `INSERT INTO reports (description, category, location, image_url, citizen_user_id)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
-       RETURNING id, description, ST_Y(location) as lat, ST_X(location) as lng,
-                 image_url, category, status, created_at, updated_at`,
-      [data.description, data.category, data.longitude, data.latitude, data.imageUrl ?? null, data.citizenUserId ?? null]
-    );
-    return this.mapReport(result.rows[0]);
+    const id = randomUUID();
+    const ref = this.db.collection(REPORTS_COLLECTION).doc(id);
+    await ref.set({
+      description: data.description,
+      category: data.category,
+      status: ReportStatusEnum.PENDING,
+      location: { lat: data.latitude, lng: data.longitude },
+      imageUrl: data.imageUrl ?? null,
+      citizenUserId: data.citizenUserId ?? null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    // Lectura posterior para devolver los timestamps reales del servidor
+    const doc = await ref.get();
+    return this.mapReport(doc.id, doc.data()!);
   }
 
   /** Lista denuncias con filtros y paginación */
   async findAll(params: ReportQueryParams): Promise<PaginatedResponse<IReport>> {
-    const page = params.page ?? 1;
-    const limit = params.limit ?? 20;
-    const offset = (page - 1) * limit;
+    const page = Math.min(Math.max(params.page ?? 1, 1), MAX_PAGE);
+    const limit = Math.min(Math.max(params.limit ?? 20, 1), MAX_LIMIT);
 
-    let where = "WHERE 1=1";
-    const values: unknown[] = [];
-    let paramIndex = 1;
+    const baseQuery = this.buildReportsQuery(params);
 
-    if (params.status) {
-      where += ` AND status = $${paramIndex++}`;
-      values.push(params.status);
-    }
-    if (params.category) {
-      where += ` AND category = $${paramIndex++}`;
-      values.push(params.category);
-    }
-    if (params.startDate) {
-      where += ` AND created_at >= $${paramIndex++}`;
-      values.push(params.startDate);
-    }
-    if (params.endDate) {
-      where += ` AND created_at <= $${paramIndex++}`;
-      values.push(params.endDate);
+    // Total exacto vía agregación count()
+    const countSnapshot = await baseQuery.count().get();
+    const total = countSnapshot.data().count;
+    const totalPages = Math.ceil(total / limit);
+
+    // Firestore no soporta OFFSET: se recorre con cursores hasta la página pedida
+    let query = baseQuery.limit(limit);
+    for (let currentPage = 1; currentPage < page; currentPage++) {
+      const snapshot = await query.get();
+      // Sin más documentos: la página pedida queda fuera de rango
+      if (snapshot.docs.length < limit) {
+        return { success: true, data: [], meta: { total, page, limit, totalPages } };
+      }
+      query = baseQuery
+        .startAfter(snapshot.docs[snapshot.docs.length - 1])
+        .limit(limit);
     }
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*) as total FROM reports ${where}`,
-      values
-    );
-    const total = parseInt(countResult.rows[0].total, 10);
-
-    const dataResult = await pool.query(
-      `SELECT id, description, ST_Y(location) as lat, ST_X(location) as lng,
-              image_url, category, status, created_at, updated_at
-       FROM reports ${where}
-       ORDER BY created_at DESC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      [...values, limit, offset]
-    );
-
+    const snapshot = await query.get();
     return {
       success: true,
-      data: dataResult.rows.map((r: ReportRow) => this.mapReport(r)),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      data: snapshot.docs.map((doc) => this.mapReport(doc.id, doc.data()!)),
+      meta: { total, page, limit, totalPages },
     };
   }
 
   /** Busca denuncia por ID */
   async findById(id: string): Promise<IReport | null> {
-    const result = await pool.query(
-      `SELECT id, description, ST_Y(location) as lat, ST_X(location) as lng,
-              image_url, category, status, created_at, updated_at
-       FROM reports WHERE id = $1`,
-      [id]
-    );
-    if (result.rows.length === 0) return null;
-    return this.mapReport(result.rows[0]);
+    const doc = await this.db.collection(REPORTS_COLLECTION).doc(id).get();
+    if (!doc.exists) return null;
+    return this.mapReport(doc.id, doc.data()!);
   }
 
   /** Actualiza estado de una denuncia */
   async updateStatus(id: string, status: ReportStatus): Promise<IReport> {
-    const result = await pool.query(
-      `UPDATE reports SET status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, description, ST_Y(location) as lat, ST_X(location) as lng,
-                 image_url, category, status, created_at, updated_at`,
-      [status, id]
-    );
-    return this.mapReport(result.rows[0]);
+    const ref = this.db.collection(REPORTS_COLLECTION).doc(id);
+    await ref.update({ status, updatedAt: FieldValue.serverTimestamp() });
+    const doc = await ref.get();
+    return this.mapReport(doc.id, doc.data()!);
   }
 
   /** Crea nota interna de seguimiento */
@@ -126,25 +119,31 @@ export class ReportsRepository {
     content: string;
     createdBy: string;
   }): Promise<IInternalNote> {
-    const result = await pool.query(
-      `INSERT INTO internal_notes (report_id, content, created_by)
-       VALUES ($1, $2, $3)
-       RETURNING id, report_id, content, created_by, created_at`,
-      [data.reportId, data.content, data.createdBy]
-    );
-    return result.rows[0];
+    const id = randomUUID();
+    const ref = this.db
+      .collection(REPORTS_COLLECTION)
+      .doc(data.reportId)
+      .collection(NOTES_COLLECTION)
+      .doc(id);
+    await ref.set({
+      reportId: data.reportId,
+      content: data.content,
+      createdBy: data.createdBy,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    const doc = await ref.get();
+    return this.mapNote(doc.id, doc.data()!);
   }
 
   /** Obtiene notas de una denuncia */
   async findNotes(reportId: string): Promise<IInternalNote[]> {
-    const result = await pool.query(
-      `SELECT id, report_id, content, created_by, created_at
-       FROM internal_notes
-       WHERE report_id = $1
-       ORDER BY created_at DESC`,
-      [reportId]
-    );
-    return result.rows;
+    const snapshot = await this.db
+      .collection(REPORTS_COLLECTION)
+      .doc(reportId)
+      .collection(NOTES_COLLECTION)
+      .orderBy("createdAt", "desc")
+      .get();
+    return snapshot.docs.map((doc) => this.mapNote(doc.id, doc.data()!));
   }
 
   /** Obtiene datos agregados para mapa de calor */
@@ -153,85 +152,104 @@ export class ReportsRepository {
     endDate?: string;
     category?: string;
   }): Promise<HeatmapPoint[]> {
-    let where = "WHERE 1=1";
-    const values: unknown[] = [];
-    let paramIndex = 1;
-
+    let query: Query = this.db.collection(REPORTS_COLLECTION);
     if (params?.startDate) {
-      where += ` AND created_at >= $${paramIndex++}`;
-      values.push(params.startDate);
+      query = query.where("createdAt", ">=", new Date(params.startDate));
     }
     if (params?.endDate) {
-      where += ` AND created_at <= $${paramIndex++}`;
-      values.push(params.endDate);
+      query = query.where("createdAt", "<=", new Date(params.endDate));
     }
     if (params?.category) {
-      where += ` AND category = $${paramIndex++}`;
-      values.push(params.category);
+      query = query.where("category", "==", params.category);
     }
 
-    const result = await pool.query(
-      `SELECT id, ST_Y(location) as lat, ST_X(location) as lng,
-              CASE status
-                WHEN 'pending' THEN 1.0
-                WHEN 'in_progress' THEN 0.5
-                WHEN 'resolved' THEN 0.1
-                ELSE 0.5
-              END as intensity
-       FROM reports ${where}`,
-      values
-    );
-    return result.rows;
+    const docs = await this.fetchAll(query);
+    return docs.map((doc) => {
+      const data = doc.data()!;
+      return {
+        id: doc.id,
+        lat: data.location.lat,
+        lng: data.location.lng,
+        intensity: HEATMAP_INTENSITY[data.status] ?? 0.5,
+      };
+    });
   }
 
-  /** Obtiene estadísticas agregadas */
-  async getStats(): Promise<{
-    total: number;
-    byStatus: Record<string, number>;
-    byCategory: Record<string, number>;
-    pendingCount: number;
-    inProgressCount: number;
-    resolvedCount: number;
-  }> {
-    const [byStatus, byCategory] = await Promise.all([
-      pool.query(
-        `SELECT status, COUNT(*)::int as count FROM reports GROUP BY status`
-      ),
-      pool.query(
-        `SELECT category, COUNT(*)::int as count FROM reports GROUP BY category`
-      ),
-    ]);
+  /** Obtiene estadísticas agregadas (cálculo en memoria a escala municipal) */
+  async getStats(): Promise<ReportStats> {
+    const docs = await this.fetchAll(this.db.collection(REPORTS_COLLECTION));
 
     const statusMap: Record<string, number> = {};
-    byStatus.rows.forEach((r: { status: string; count: number }) => {
-      statusMap[r.status] = r.count;
-    });
     const categoryMap: Record<string, number> = {};
-    byCategory.rows.forEach((r: { category: string; count: number }) => {
-      categoryMap[r.category] = r.count;
-    });
+    for (const doc of docs) {
+      const data = doc.data()!;
+      statusMap[data.status] = (statusMap[data.status] ?? 0) + 1;
+      categoryMap[data.category] = (categoryMap[data.category] ?? 0) + 1;
+    }
 
     const total = Object.values(statusMap).reduce((a, b) => a + b, 0);
     return {
       total,
       byStatus: statusMap,
       byCategory: categoryMap,
-      pendingCount: statusMap["pending"] ?? 0,
-      inProgressCount: statusMap["in_progress"] ?? 0,
-      resolvedCount: statusMap["resolved"] ?? 0,
+      pendingCount: statusMap[ReportStatusEnum.PENDING] ?? 0,
+      inProgressCount: statusMap[ReportStatusEnum.IN_PROGRESS] ?? 0,
+      resolvedCount: statusMap[ReportStatusEnum.RESOLVED] ?? 0,
     };
   }
 
-  private mapReport(row: ReportRow): IReport {
+  /** Construye la query de denuncias con filtros y orden estable */
+  private buildReportsQuery(params: ReportQueryParams): Query {
+    let query: Query = this.db.collection(REPORTS_COLLECTION);
+    if (params.status) query = query.where("status", "==", params.status);
+    if (params.category) query = query.where("category", "==", params.category);
+    if (params.startDate) {
+      query = query.where("createdAt", ">=", new Date(params.startDate));
+    }
+    if (params.endDate) {
+      query = query.where("createdAt", "<=", new Date(params.endDate));
+    }
+    // Tie-break por ID de documento para paginación estable
+    return query.orderBy("createdAt", "desc").orderBy("__name__", "desc");
+  }
+
+  /** Lee todos los documentos de una query paginando con cursores */
+  private async fetchAll(query: Query): Promise<QueryDocumentSnapshot[]> {
+    const docs: QueryDocumentSnapshot[] = [];
+    let last: QueryDocumentSnapshot | undefined;
+    for (;;) {
+      let pageQuery = query.limit(FETCH_BATCH_SIZE);
+      if (last) pageQuery = pageQuery.startAfter(last);
+      const snapshot = await pageQuery.get();
+      docs.push(...snapshot.docs);
+      if (snapshot.docs.length < FETCH_BATCH_SIZE) break;
+      last = snapshot.docs[snapshot.docs.length - 1];
+    }
+    return docs;
+  }
+
+  /** Mapea un documento Firestore a IReport */
+  private mapReport(id: string, data: DocumentData): IReport {
     return {
-      id: row.id,
-      description: row.description,
-      location: { lat: row.lat, lng: row.lng },
-      image_url: row.image_url,
-      category: row.category as IReport["category"],
-      status: row.status,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
+      id,
+      description: data.description,
+      location: { lat: data.location.lat, lng: data.location.lng },
+      image_url: data.imageUrl ?? null,
+      category: data.category as IReport["category"],
+      status: data.status,
+      created_at: (data.createdAt as Timestamp).toDate().toISOString(),
+      updated_at: (data.updatedAt as Timestamp).toDate().toISOString(),
+    };
+  }
+
+  /** Mapea un documento de nota a IInternalNote */
+  private mapNote(id: string, data: DocumentData): IInternalNote {
+    return {
+      id,
+      report_id: data.reportId,
+      content: data.content,
+      created_by: data.createdBy,
+      created_at: (data.createdAt as Timestamp).toDate().toISOString(),
     };
   }
 }

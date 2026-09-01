@@ -1,10 +1,10 @@
 # Arquitectura Técnica — Plataforma de Denuncia Ciudadana Villarrica
 
-> Documento generado el 2026-05-16. Versión referida a la rama `master` (commit más reciente).
+> Documento generado el 2026-05-16. Actualizado el 2026-08-26 (migración de PostgreSQL a Firestore).
 
 ## 1. Visión General
 
-Plataforma digital (PWA) que permite a los residentes de Villarrica reportar incidentes urbanos en tiempo real. Consta de tres aplicaciones desplegadas en Google Cloud: una API NestJS en Cloud Run, una PWA ciudadana (Vue 3) expuesta en Firebase Hosting, y un panel administrativo (Vue 3) también en Firebase Hosting. La base de datos es PostgreSQL + PostGIS en Cloud SQL, con imágenes almacenadas en Cloud Storage y accedidas mediante Signed URLs.
+Plataforma digital (PWA) que permite a los residentes de Villarrica reportar incidentes urbanos en tiempo real. Consta de tres aplicaciones desplegadas en Google Cloud: una API NestJS en Cloud Run, una PWA ciudadana (Vue 3) expuesta en Firebase Hosting, y un panel administrativo (Vue 3) también en Firebase Hosting. La base de datos es Firestore (Firebase, región `southamerica-west1`), con imágenes almacenadas en Cloud Storage y accedidas mediante Signed URLs.
 
 ### Diagrama de alto nivel
 
@@ -31,16 +31,16 @@ Plataforma digital (PWA) que permite a los residentes de Villarrica reportar inc
 │  │       │             │              │              │       │  │
 │  │       └─────────────┴──────────────┴──────────────┘       │  │
 │  │                           │                               │  │
-│  │                  @ciudadano/database                      │  │
-│  │                  (pg Pool, queries)                       │  │
+│  │                  FirebaseModule (global)                  │  │
+│  │                  Firebase Admin SDK (Firestore)           │  │
 │  └───────────────────────────┬───────────────────────────────┘  │
 └──────────────────────────────┼──────────────────────────────────┘
-                               │ VPC Connector (private IP)
+                               │ gRPC (red pública)
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                  Cloud SQL (PostgreSQL 16 + PostGIS 3.4)        │
-│  Tablas: reports, internal_notes, admin_users, citizen_users    │
-│  Índices: GIST espacial, B-tree por status/category/fecha       │
+│                    Firestore (modo Native)                      │
+│  Colecciones: reports, reports/{id}/notes, admin_users,         │
+│  citizen_users — región southamerica-west1 (Santiago)           │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -65,14 +65,17 @@ ciudadano/
 ├── apps/
 │   ├── api/                    # NestJS backend (Node 20, ESM)
 │   │   ├── src/
-│   │   │   ├── main.ts                       # Bootstrap: CORS, ValidationPipe, migraciones
+│   │   │   ├── main.ts                       # Bootstrap: CORS, ValidationPipe
 │   │   │   ├── app.module.ts                 # Módulo raíz
 │   │   │   ├── config/configuration.ts       # Validación de env vars con Joi
 │   │   │   ├── common/
 │   │   │   │   ├── decorators/roles.decorator.ts
 │   │   │   │   ├── filters/http-exception.filter.ts
 │   │   │   │   └── interceptors/transform.interceptor.ts
+│   │   │   ├── testing/firestore.mock.ts     # Mock de Firestore para tests unitarios
+│   │   │   ├── scripts/seed.ts               # Datos de prueba para Firestore
 │   │   │   └── modules/
+│   │   │       ├── firebase/       # Módulo global: init Admin SDK (App + Firestore)
 │   │   │       ├── auth/           # Autenticación JWT (backoffice) + Firebase (ciudadanos)
 │   │   │       ├── reports/        # CRUD de denuncias
 │   │   │       ├── reports-analytics/  # Analytics, heatmap, PDF, Excel
@@ -108,16 +111,10 @@ ciudadano/
 │   │   │   ├── types/api.ts             # ApiResponse<T>, PaginatedResponse<T>, DTOs
 │   │   │   └── constants/categories.ts  # CATEGORIES con íconos
 │   │   └── package.json
-│   └── database/               # Pool de conexión pg + migraciones + seeds
-│       ├── src/
-│       │   ├── client.ts                # Pool singleton, query(), getClient()
-│       │   ├── migrate.ts               # Runner idempotente de migraciones SQL
-│       │   └── seed.ts                  # Datos de prueba para desarrollo
-│       ├── src/migrations/              # Archivos SQL numerados secuencialmente
-│       └── package.json
-├── docker-compose.yml          # PostgreSQL 16 + PostGIS 3.4 para desarrollo local
+├── firestore.rules            # Reglas de Firestore (deny-all, acceso solo vía Admin SDK)
+├── firestore.indexes.json     # Índices compuestos de Firestore
 ├── firebase.json               # Emuladores + hosting targets (citizen, backoffice)
-├── .firebaserc                 # Proyecto: denuncia-ciudadana-5fa44
+├── .firebaserc                 # Proyecto: villarrica-ciudadano
 ├── turbo.json                  # Pipeline: build, dev, lint, test, clean
 ├── pnpm-workspace.yaml         # apps/* packages/*
 ├── tsconfig.base.json          # TS config base (ES2022, ESNext, bundler)
@@ -130,109 +127,82 @@ ciudadano/
 @ciudadano/shared  (sin dependencias internas)
         ▲
         │
-@ciudadano/database  ─── depende de @ciudadano/shared
-        ▲
-        │
-@ciudadano/api  ─── depende de @ciudadano/database, @ciudadano/shared
+@ciudadano/api  ─── depende de @ciudadano/shared
 @ciudadano/citizen  ─── depende de @ciudadano/shared
 @ciudadano/backoffice  ─── depende de @ciudadano/shared
 ```
 
 ---
 
-## 3. Base de Datos
+## 3. Base de Datos (Firestore)
 
 ### 3.1 Motor
 
-- **PostgreSQL 16** + **PostGIS 3.4** (imagen `postgis/postgis:16-3.4` en desarrollo local)
-- **Cloud SQL** en producción, conectado vía VPC Connector desde Cloud Run
-- SRID estándar: **4326 (WGS84)** para todas las coordenadas geográficas
+- **Firestore en modo Native**, ubicación regional **`southamerica-west1`** (Santiago de Chile)
+- Acceso exclusivo vía **Firebase Admin SDK** desde la API; las reglas (`firestore.rules`) niegan todo acceso directo de clientes
+- Coordenadas **WGS84** como par de números `{ lat, lng }` (no se requieren consultas espaciales)
 
-### 3.2 Esquema
+### 3.2 Modelo de datos
 
-#### Tabla `reports` (denuncias ciudadanas)
+#### Colección `reports` (denuncias ciudadanas)
 
-| Columna | Tipo | Descripción |
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `id` | `UUID PK` | Generado con `uuid_generate_v4()` |
-| `description` | `TEXT NOT NULL` | Texto libre de la denuncia |
-| `location` | `GEOMETRY(Point, 4326) NOT NULL` | Coordenadas PostGIS |
-| `image_url` | `TEXT` | Object key en GCS (ruta relativa, no URL pública) |
-| `category` | `VARCHAR(50) NOT NULL` | Categoría enumerada |
-| `status` | `report_status ENUM` | `pending`, `in_progress`, `resolved` |
-| `citizen_user_id` | `UUID FK → citizen_users(id)` | Usuario ciudadano autenticado que creó la denuncia |
-| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
-| `updated_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
+| `id` (doc ID) | `string` (UUID v4) | Generado con `crypto.randomUUID()` |
+| `description` | `string` | Texto libre de la denuncia |
+| `location` | `{ lat: number, lng: number }` | Coordenadas WGS84 |
+| `imageUrl` | `string \| null` | Object key en GCS (ruta relativa, no URL pública) |
+| `category` | `string` | Categoría enumerada |
+| `status` | `string` | `pending`, `in_progress`, `resolved` |
+| `citizenUserId` | `string \| null` | firebase_uid del ciudadano que creó la denuncia |
+| `createdAt` | `Timestamp` | `FieldValue.serverTimestamp()` |
+| `updatedAt` | `Timestamp` | Actualizado en cada cambio de estado |
 
-**Índices:**
-- `idx_reports_location` — GIST espacial (consultas geoespaciales, mapa de calor)
-- `idx_reports_status` — B-tree (filtro por estado)
-- `idx_reports_category` — B-tree (filtro por categoría)
-- `idx_reports_created_at` — B-tree (filtro por rango de fechas)
-- `idx_reports_citizen_user` — B-tree (vincular usuario con denuncias)
+#### Subcolección `reports/{reportId}/notes` (notas de seguimiento)
 
-#### Tabla `internal_notes` (notas de seguimiento)
-
-| Columna | Tipo | Descripción |
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `id` | `UUID PK` | |
-| `report_id` | `UUID FK → reports(id) ON DELETE CASCADE` | |
-| `content` | `TEXT NOT NULL` | |
-| `created_by` | `VARCHAR(100) NOT NULL` | Email del admin/staff |
-| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
+| `id` (doc ID) | `string` (UUID v4) | |
+| `reportId` | `string` | ID del reporte padre (redundante) |
+| `content` | `string` | |
+| `createdBy` | `string` | Email del admin/staff |
+| `createdAt` | `Timestamp` | |
 
-**Índice:** `idx_notes_report` en `report_id`.
+#### Colección `admin_users` (usuarios del backoffice)
 
-#### Tabla `admin_users` (usuarios del backoffice)
-
-| Columna | Tipo | Descripción |
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `id` | `UUID PK` | |
-| `email` | `VARCHAR(255) UNIQUE NOT NULL` | |
-| `password` | `VARCHAR(255) NOT NULL` | Hash bcrypt |
-| `name` | `VARCHAR(100) NOT NULL` | |
-| `role` | `VARCHAR(20) DEFAULT 'staff'` | `admin` o `staff` |
-| `status` | `admin_user_status ENUM DEFAULT 'active'` | `pending`, `active`, `rejected` |
-| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
+| `id` (doc ID) | `string` (UUID v4) | |
+| `email` | `string` | Búsqueda con `where("email", "==")` |
+| `password` | `string` | Hash bcrypt (10 rounds) |
+| `name` | `string` | |
+| `role` | `string` | `admin` o `staff` |
+| `status` | `string` | `pending`, `active`, `rejected` |
+| `createdAt` | `Timestamp` | |
 
-**Índices:** `idx_admin_users_email`, `idx_admin_users_status`, `idx_admin_users_role`.
+#### Colección `citizen_users` (ciudadanos autenticados vía Firebase)
 
-#### Tabla `citizen_users` (ciudadanos autenticados vía Firebase)
-
-| Columna | Tipo | Descripción |
+| Campo | Tipo | Descripción |
 |---|---|---|
-| `id` | `UUID PK` | |
-| `firebase_uid` | `VARCHAR(128) UNIQUE NOT NULL` | UID de Firebase Auth |
-| `email` | `VARCHAR(255)` | Email del proveedor OAuth |
-| `display_name` | `VARCHAR(150)` | Nombre público |
-| `provider` | `VARCHAR(50) NOT NULL` | `google.com`, `facebook.com` |
-| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
-| `last_login` | `TIMESTAMPTZ DEFAULT NOW()` | Actualizado en cada login |
+| `id` (doc ID) | `string` (= firebase_uid) | Permite upsert directo con `.doc(uid)` |
+| `email` | `string \| null` | Email del proveedor OAuth |
+| `displayName` | `string \| null` | Nombre público |
+| `provider` | `string` | `google.com`, `facebook.com` |
+| `createdAt` | `Timestamp` | Solo en el primer registro |
+| `lastLogin` | `Timestamp` | Actualizado en cada login |
 
-**Índices:** `idx_citizen_users_firebase_uid`, `idx_citizen_users_email`.
+### 3.3 Índices compuestos
 
-#### Tabla `_migrations` (control de migraciones)
+Definidos en `firestore.indexes.json` y desplegados con `firebase deploy --only firestore:indexes`:
 
-| Columna | Tipo | Descripción |
-|---|---|---|
-| `name` | `TEXT PK` | Nombre del archivo de migración |
-| `executed_at` | `TIMESTAMPTZ DEFAULT NOW()` | |
+1. `reports`: (status ASC, createdAt DESC, `__name__` DESC)
+2. `reports`: (category ASC, createdAt DESC, `__name__` DESC)
+3. `reports`: (status ASC, category ASC, createdAt DESC, `__name__` DESC)
+4. `reports`: (createdAt DESC, `__name__` DESC)
 
-### 3.3 Sistema de Migraciones
+### 3.4 Mapeo de API
 
-- Migraciones SQL idempotentes (usan `IF NOT EXISTS`, `DO $$ BEGIN ... EXCEPTION ... END $$`)
-- Ejecutadas secuencialmente dentro de una transacción atómica por archivo
-- Cada migración exitosa se registra en `_migrations`
-- Pueden ejecutarse al inicio de la API (`RUN_MIGRATIONS=true`) o manualmente (`pnpm db:migrate`)
-
-**Lista de migraciones:**
-1. `001_create_extensions.sql` — Habilita `uuid-ossp` y `postgis`
-2. `002_create_reports.sql` — Crea tipo `report_status`, tabla `reports` e índices
-3. `003_create_internal_notes.sql` — Tabla `internal_notes`
-4. `004_create_admin_users.sql` — Tabla `admin_users`
-5. `005_alter_admin_users.sql` — Agrega `admin_user_status` y columna `status`
-6. `006_create_citizen_users.sql` — Tabla `citizen_users`
-7. `007_add_reports_citizen_user.sql` — FK de `reports` a `citizen_users`
+Los repositorios convierten `Timestamp` a ISO strings y camelCase a snake_case para preservar el contrato de la API (`created_at`, `image_url`, `display_name`, etc.). La paginación por página del backoffice se implementa con agregación `count()` + cursor walk (`startAfter`), manteniendo intacto `PaginatedResponse`. Heatmap y estadísticas agregan en memoria tras leer los documentos (escala municipal).
 
 ---
 
@@ -245,7 +215,7 @@ ciudadano/
 | Framework | NestJS 10 (Node.js 20, ESM) |
 | Validación | class-validator + class-transformer (ValidationPipe global) |
 | Autenticación | Passport + JWT (backoffice), Firebase Admin SDK (ciudadanos) |
-| Base de datos | pg (raw SQL parametrizado, sin ORM) |
+| Base de datos | Firestore vía Firebase Admin SDK (sin ORM) |
 | Almacenamiento | @google-cloud/storage |
 | Reporting | PDFKit (PDF), ExcelJS (Excel) |
 | Configuración | @nestjs/config + Joi validation |
@@ -256,7 +226,7 @@ ciudadano/
 Request → CORS → GlobalPrefix (api/v1) → ValidationPipe
   → Controller (con Guards y Decorators)
     → Service (lógica de negocio)
-      → Repository (SQL parametrizado via pg Pool)
+      → Repository (Firestore vía Admin SDK)
     → Interceptor (envuelve respuesta en ApiResponse)
   → ExceptionFilter (errores estandarizados)
 → Response
@@ -297,7 +267,7 @@ Request → CORS → GlobalPrefix (api/v1) → ValidationPipe
 
 **Validaciones en creación de denuncia:**
 - Imagen: solo JPEG, PNG, WebP; máximo 10MB
-- Coordenadas: requeridas, almacenadas con `ST_SetSRID(ST_MakePoint(lng, lat), 4326)`
+- Coordenadas: requeridas, almacenadas como `{ lat, lng }` (WGS84) en Firestore
 - Descripción: texto libre hasta 2000 caracteres
 
 #### ReportsAnalyticsModule
@@ -323,8 +293,8 @@ Request → CORS → GlobalPrefix (api/v1) → ValidationPipe
 
 #### HealthModule (`/api/v1/health`)
 
-- `GET /health` → Verifica conectividad con la base de datos (`SELECT 1`)
-- Retorna `{ status: "ok" | "degraded", timestamp, db: boolean }`
+- `GET /health` → Verifica conectividad con Firestore (query `limit(1)` a la colección `reports`)
+- Retorna `{ status: "ok" | "degraded", timestamp, firestore: boolean }`
 - Usado por Cloud Run para health checks y por el pipeline de deploy para verificar despliegue exitoso
 
 ### 4.4 Cross-cutting Concerns
@@ -429,8 +399,8 @@ Request → CORS → GlobalPrefix (api/v1) → ValidationPipe
 
 | Recurso | Tecnología | Región | Notas |
 |---|---|---|---|
-| API | Cloud Run | `southamerica-west1` | Serverless, auto-escalado |
-| DB | Cloud SQL | `southamerica-west1` | PostgreSQL 16 + PostGIS |
+| API | Cloud Run | `southamerica-west1` | Serverless, auto-escalado, SA `cloud-run-api` |
+| DB | Firestore | `southamerica-west1` | Modo Native, acceso vía Admin SDK |
 | Imágenes | Cloud Storage | — | Bucket privado, Signed URLs |
 | Docker | Artifact Registry | `southamerica-west1` | Imágenes de la API |
 | Frontends | Firebase Hosting | — | 2 sites: citizen, backoffice |
@@ -445,7 +415,7 @@ Request → CORS → GlobalPrefix (api/v1) → ValidationPipe
 
 **Pipeline de Deploy** (`deploy.yml` — se ejecuta al publicar un release o manualmente):
 1. `build` — Instala y compila todos los paquetes
-2. `deploy-api` — Construye imagen Docker, push a Artifact Registry, deploy a Cloud Run con VPC Connector, health check
+2. `deploy-api` — Construye imagen Docker, push a Artifact Registry, deploy a Cloud Run con service account dedicada, health check
 3. `deploy-frontends` — Build de citizen y backoffice en paralelo (matrix), deploy a Firebase Hosting
 
 **Pipeline de Rollback** (`rollback.yml` — manual):
@@ -465,15 +435,14 @@ Multi-stage build optimizado:
 |---|---|---|---|
 | `NODE_ENV` | ✓ | | |
 | `PORT` | ✓ | | |
-| `DB_HOST/PORT/NAME/USER/PASSWORD` | ✓ | | |
 | `GCS_BUCKET` | ✓ | | |
 | `GCS_PROJECT_ID` | ✓ | | |
 | `GCS_SERVICE_ACCOUNT_KEY` | ✓ (JSON) | | |
 | `JWT_SECRET` | ✓ | | |
 | `JWT_EXPIRATION` / `JWT_REFRESH_EXPIRATION` | ✓ | | |
 | `CORS_ORIGINS` | ✓ | | |
-| `RUN_MIGRATIONS` | ✓ | | |
 | `FIREBASE_AUTH_EMULATOR_HOST` | ✓ (dev) | | |
+| `FIRESTORE_EMULATOR_HOST` | ✓ (dev) | | |
 | `VITE_FIREBASE_API_KEY/AUTH_DOMAIN/PROJECT_ID/APP_ID` | | ✓ (build) | |
 | `VITE_API_URL` | | ✓ (build) | ✓ (build) |
 
@@ -496,7 +465,7 @@ Multi-stage build optimizado:
 ### 8.3 Endpoints
 
 - `ValidationPipe` global con `whitelist` y `forbidNonWhitelisted` previene inyección de propiedades no deseadas
-- Queries parametrizadas (pg) previenen SQL injection
+- Acceso a Firestore únicamente vía Admin SDK; las reglas de seguridad (`firestore.rules`) niegan todo acceso directo de clientes
 - Rate limiting no implementado actualmente (delegado a Cloud Run / load balancer si se requiere)
 
 ---
@@ -507,7 +476,7 @@ Multi-stage build optimizado:
 
 - Node.js >= 20
 - pnpm >= 9.15
-- Docker + Docker Compose
+- Firebase CLI (`firebase-tools`)
 
 ### 9.2 Inicio rápido
 
@@ -515,15 +484,16 @@ Multi-stage build optimizado:
 pnpm install
 cp apps/api/.env.example apps/api/.env
 cp apps/citizen/.env.example apps/citizen/.env
-docker compose up -d          # PostgreSQL + PostGIS en :5432
-pnpm db:migrate
-pnpm db:seed
-pnpm dev                      # Turbo levanta API (:3000) + Citizen (:5173) + Backoffice (:5174)
+firebase use villarrica-ciudadano
+firebase emulators:start        # Auth :9099, Storage :9199, Firestore :8080, UI :4000
+pnpm db:seed                    # Datos de prueba en el emulador de Firestore
+pnpm dev                        # Turbo levanta API (:3000) + Citizen (:5173) + Backoffice (:5174)
 ```
 
 ### 9.3 Emuladores Firebase
 
-- `firebase.json` configura emuladores para Auth (:9099), Storage (:9199) y UI (:4000)
+- `firebase.json` configura emuladores para Auth (:9099), Storage (:9199), Firestore (:8080) y UI (:4000)
+- El Admin SDK detecta los emuladores automáticamente vía `FIREBASE_AUTH_EMULATOR_HOST`, `STORAGE_EMULATOR_HOST` y `FIRESTORE_EMULATOR_HOST`
 - En desarrollo local, el emulador de Firebase Auth está **deshabilitado** por defecto en el frontend porque `signInWithPopup` con Google real no funciona contra el emulador
 - El emulador de Storage se usa para desarrollo local (configurado en `STORAGE_EMULATOR_HOST`)
 
@@ -574,8 +544,8 @@ enum AdminUserStatus { PENDING, ACTIVE, REJECTED }
 ### Código
 - TypeScript estricto (`strict: true`)
 - Módulos ESM (`.js` extension en imports relativos para Node.js)
-- Sin ORM — SQL parametrizado directo con pg
-- Tests unitarios obligatorios para nuevas funcionalidades (`.spec.ts`)
+- Sin ORM — acceso a Firestore vía Firebase Admin SDK (repositorios inyectan el token `FIRESTORE`)
+- Tests unitarios obligatorios para nuevas funcionalidades (`.spec.ts`); mocks de Firestore con `src/testing/firestore.mock.ts`
 - Sin uso de emojis en código (solo si el usuario lo pide explícitamente)
 
 ---
@@ -583,12 +553,12 @@ enum AdminUserStatus { PENDING, ACTIVE, REJECTED }
 ## 12. Puntos de Extensión para Futuras Features
 
 1. **Notificaciones push:** La PWA ya tiene service worker; se puede agregar Firebase Cloud Messaging para notificar cambios de estado.
-2. **Comentarios públicos:** Agregar tabla `public_comments` y endpoints para que ciudadanos comenten en denuncias.
+2. **Comentarios públicos:** Agregar colección `public_comments` y endpoints para que ciudadanos comenten en denuncias.
 3. **Gamificación:** Sistema de puntos/rangos para ciudadanos que reportan incidentes.
 4. **Integración municipal:** Webhook para enviar denuncias resueltas a sistemas municipales existentes.
 5. **Multi-idioma:** Vue I18n para soporte de mapudungun e inglés.
 6. **Offline mode:** La PWA ya tiene Workbox; se puede extender para aceptar denuncias offline con sincronización posterior (Background Sync).
 7. **Testing E2E:** Agregar Playwright o Cypress para flujos críticos.
 8. **Rate limiting:** Implementar `@nestjs/throttler` para proteger endpoints públicos.
-9. **Audit log:** Tabla `audit_logs` para registrar todas las acciones administrativas.
+9. **Audit log:** Colección `audit_logs` para registrar todas las acciones administrativas.
 10. **WebSocket:** Gateway NestJS para notificaciones en tiempo real en el backoffice cuando llegan nuevas denuncias.

@@ -1,15 +1,16 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import { UnauthorizedException, ConflictException, NotFoundException, ForbiddenException } from "@nestjs/common";
+import {
+  UnauthorizedException,
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
 import { UserRole } from "@ciudadano/shared";
 import { AuthService } from "./auth.service.js";
-import { pool } from "@ciudadano/database";
+import { AdminUsersRepository } from "./admin-users.repository.js";
 import * as bcrypt from "bcrypt";
-
-jest.mock("@ciudadano/database", () => ({
-  pool: { query: jest.fn() },
-}));
 
 jest.mock("bcrypt", () => ({
   compare: jest.fn(),
@@ -19,11 +20,19 @@ jest.mock("bcrypt", () => ({
 describe("AuthService", () => {
   let service: AuthService;
   let jwtService: JwtService;
+  let adminUsersRepository: {
+    findByEmail: jest.Mock;
+    emailExists: jest.Mock;
+    create: jest.Mock;
+    findAll: jest.Mock;
+    updateStatus: jest.Mock;
+    updateRole: jest.Mock;
+    delete: jest.Mock;
+  };
 
   const mockUser = {
     id: "uuid-1",
     email: "admin@villarrica.cl",
-    password: "hashed-password",
     name: "Admin",
     role: "admin",
     status: "active",
@@ -47,6 +56,16 @@ describe("AuthService", () => {
   };
 
   beforeEach(async () => {
+    adminUsersRepository = {
+      findByEmail: jest.fn(),
+      emailExists: jest.fn(),
+      create: jest.fn(),
+      findAll: jest.fn(),
+      updateStatus: jest.fn(),
+      updateRole: jest.fn(),
+      delete: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -57,6 +76,10 @@ describe("AuthService", () => {
         {
           provide: ConfigService,
           useValue: { get: jest.fn() },
+        },
+        {
+          provide: AdminUsersRepository,
+          useValue: adminUsersRepository,
         },
       ],
     }).compile();
@@ -69,7 +92,10 @@ describe("AuthService", () => {
     const loginDto = { email: "admin@villarrica.cl", password: "secret123" };
 
     it("should return tokens and user when credentials are valid and user is active", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockUser] });
+      adminUsersRepository.findByEmail.mockResolvedValue({
+        ...mockUser,
+        password: "hashed-password",
+      });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       (jwtService.sign as jest.Mock)
         .mockReturnValueOnce("access-token-xyz")
@@ -77,11 +103,13 @@ describe("AuthService", () => {
 
       const result = await service.login(loginDto);
 
-      expect(pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("SELECT"),
-        [loginDto.email]
+      expect(adminUsersRepository.findByEmail).toHaveBeenCalledWith(
+        loginDto.email
       );
-      expect(bcrypt.compare).toHaveBeenCalledWith(loginDto.password, mockUser.password);
+      expect(bcrypt.compare).toHaveBeenCalledWith(
+        loginDto.password,
+        "hashed-password"
+      );
       expect(jwtService.sign).toHaveBeenCalledTimes(2);
       expect(result).toEqual({
         accessToken: "access-token-xyz",
@@ -95,10 +123,15 @@ describe("AuthService", () => {
           created_at: mockUser.created_at,
         },
       });
+      // La contraseña nunca se expone en la respuesta
+      expect(result.user).not.toHaveProperty("password");
     });
 
     it("should throw UnauthorizedException when user is pending", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockPendingUser] });
+      adminUsersRepository.findByEmail.mockResolvedValue({
+        ...mockPendingUser,
+        password: "hashed-password",
+      });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.login(loginDto)).rejects.toThrow(
@@ -107,7 +140,10 @@ describe("AuthService", () => {
     });
 
     it("should throw UnauthorizedException when user is rejected", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockRejectedUser] });
+      adminUsersRepository.findByEmail.mockResolvedValue({
+        ...mockRejectedUser,
+        password: "hashed-password",
+      });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.login(loginDto)).rejects.toThrow(
@@ -116,28 +152,43 @@ describe("AuthService", () => {
     });
 
     it("should throw UnauthorizedException when email is not found", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [] });
+      adminUsersRepository.findByEmail.mockResolvedValue(null);
 
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(loginDto)).rejects.toThrow(
+        UnauthorizedException
+      );
     });
 
     it("should throw UnauthorizedException when password is incorrect", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockUser] });
+      adminUsersRepository.findByEmail.mockResolvedValue({
+        ...mockUser,
+        password: "hashed-password",
+      });
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(loginDto)).rejects.toThrow(
+        UnauthorizedException
+      );
     });
   });
 
   describe("register", () => {
-    const registerDto = { email: "new@test.cl", password: "secret123", name: "Nuevo Usuario" };
+    const registerDto = {
+      email: "new@test.cl",
+      password: "secret123",
+      name: "Nuevo Usuario",
+    };
 
     it("should create user with pending status and staff role", async () => {
-      (pool.query as jest.Mock)
-        .mockResolvedValueOnce({ rows: [] }) // email no existe
-        .mockResolvedValueOnce({
-          rows: [{ id: "uuid-new", email: "new@test.cl", name: "Nuevo Usuario", role: "staff", status: "pending", created_at: "2025-05-01T00:00:00Z" }],
-        });
+      adminUsersRepository.emailExists.mockResolvedValue(false);
+      adminUsersRepository.create.mockResolvedValue({
+        id: "uuid-new",
+        email: "new@test.cl",
+        name: "Nuevo Usuario",
+        role: "staff",
+        status: "pending",
+        created_at: "2025-05-01T00:00:00Z",
+      });
       (bcrypt.hash as jest.Mock).mockResolvedValue("hashed-new-password");
 
       const result = await service.register(registerDto);
@@ -145,35 +196,54 @@ describe("AuthService", () => {
       expect(result.status).toBe("pending");
       expect(result.role).toBe("staff");
       expect(bcrypt.hash).toHaveBeenCalledWith("secret123", 10);
+      expect(adminUsersRepository.create).toHaveBeenCalledWith({
+        email: "new@test.cl",
+        password: "hashed-new-password",
+        name: "Nuevo Usuario",
+      });
     });
 
     it("should throw ConflictException when email already exists", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [{ id: "existing" }] });
+      adminUsersRepository.emailExists.mockResolvedValue(true);
 
-      await expect(service.register(registerDto)).rejects.toThrow(ConflictException);
+      await expect(service.register(registerDto)).rejects.toThrow(
+        ConflictException
+      );
     });
   });
 
   describe("findAll", () => {
-    it("should return all users ordered by creation date desc", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockUser, mockPendingUser] });
+    it("should return all users", async () => {
+      adminUsersRepository.findAll.mockResolvedValue([
+        mockUser,
+        mockPendingUser,
+      ]);
 
       const result = await service.findAll();
 
       expect(result).toHaveLength(2);
-      expect(pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("ORDER BY created_at DESC")
-      );
+      expect(adminUsersRepository.findAll).toHaveBeenCalled();
     });
   });
 
   describe("updateStatus", () => {
     it("should update user status", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [{ ...mockPendingUser, status: "active" }] });
+      adminUsersRepository.updateStatus.mockResolvedValue({
+        ...mockPendingUser,
+        status: "active",
+      });
 
-      const result = await service.updateStatus("uuid-2", "active", "current-admin-id");
+      const result = await service.updateStatus(
+        "uuid-2",
+        "active",
+        "current-admin-id"
+      );
 
       expect(result.status).toBe("active");
+      expect(adminUsersRepository.updateStatus).toHaveBeenCalledWith(
+        "uuid-2",
+        "active"
+      );
     });
 
     it("should throw ForbiddenException when modifying own status", async () => {
@@ -183,7 +253,9 @@ describe("AuthService", () => {
     });
 
     it("should throw NotFoundException when user does not exist", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [] });
+      adminUsersRepository.updateStatus.mockRejectedValue(
+        new NotFoundException("Usuario no encontrado.")
+      );
 
       await expect(
         service.updateStatus("nonexistent", "active", "current-admin-id")
@@ -193,9 +265,16 @@ describe("AuthService", () => {
 
   describe("updateRole", () => {
     it("should update user role", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [{ ...mockUser, role: "staff" }] });
+      adminUsersRepository.updateRole.mockResolvedValue({
+        ...mockUser,
+        role: "staff",
+      });
 
-      const result = await service.updateRole("uuid-1", UserRole.STAFF, "current-admin-id");
+      const result = await service.updateRole(
+        "uuid-1",
+        UserRole.STAFF,
+        "current-admin-id"
+      );
 
       expect(result.role).toBe("staff");
     });
@@ -209,7 +288,7 @@ describe("AuthService", () => {
 
   describe("deleteUser", () => {
     it("should delete user", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rowCount: 1 });
+      adminUsersRepository.delete.mockResolvedValue(undefined);
 
       await expect(
         service.deleteUser("uuid-2", "current-admin-id")
@@ -223,7 +302,9 @@ describe("AuthService", () => {
     });
 
     it("should throw NotFoundException when user does not exist", async () => {
-      (pool.query as jest.Mock).mockResolvedValue({ rowCount: 0 });
+      adminUsersRepository.delete.mockRejectedValue(
+        new NotFoundException("Usuario no encontrado.")
+      );
 
       await expect(
         service.deleteUser("nonexistent", "current-admin-id")
@@ -233,7 +314,11 @@ describe("AuthService", () => {
 
   describe("validateUser", () => {
     it("should return the received payload unchanged", async () => {
-      const payload = { sub: "uuid-1", email: "admin@test.cl", role: UserRole.ADMIN };
+      const payload = {
+        sub: "uuid-1",
+        email: "admin@test.cl",
+        role: UserRole.ADMIN,
+      };
       const result = await service.validateUser(payload);
       expect(result).toEqual(payload);
     });

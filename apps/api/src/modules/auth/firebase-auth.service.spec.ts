@@ -1,19 +1,11 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { ConfigService } from "@nestjs/config";
 import { UnauthorizedException } from "@nestjs/common";
 import { FirebaseAuthService } from "./firebase-auth.service.js";
-import { pool } from "@ciudadano/database";
+import { CitizenUsersRepository } from "./citizen-users.repository.js";
+import { FIREBASE_APP } from "../firebase/firebase.constants.js";
 
-jest.mock("@ciudadano/database", () => ({
-  pool: { query: jest.fn() },
-}));
-
-// Mock de firebase-admin (subpath imports para ESM)
+// Mock de firebase-admin/auth (subpath imports para ESM)
 const mockVerifyIdToken = jest.fn();
-jest.mock("firebase-admin/app", () => ({
-  initializeApp: jest.fn(() => ({ name: "test-app" })),
-  getApp: jest.fn(() => ({ name: "test-app" })),
-}));
 jest.mock("firebase-admin/auth", () => ({
   getAuth: jest.fn(() => ({
     verifyIdToken: mockVerifyIdToken,
@@ -22,6 +14,7 @@ jest.mock("firebase-admin/auth", () => ({
 
 describe("FirebaseAuthService", () => {
   let service: FirebaseAuthService;
+  let citizenUsersRepository: { upsertByFirebaseUid: jest.Mock };
 
   const mockDecodedToken = {
     uid: "firebase-uid-123",
@@ -32,8 +25,8 @@ describe("FirebaseAuthService", () => {
     },
   };
 
-  const mockCitizenRow = {
-    id: "citizen-uuid-1",
+  const mockCitizenUser = {
+    id: "firebase-uid-123",
     firebase_uid: "firebase-uid-123",
     email: "ciudadano@gmail.com",
     display_name: "Ciudadano Test",
@@ -44,13 +37,18 @@ describe("FirebaseAuthService", () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    citizenUsersRepository = { upsertByFirebaseUid: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FirebaseAuthService,
         {
-          provide: ConfigService,
-          useValue: { get: jest.fn(() => "test-project") },
+          provide: FIREBASE_APP,
+          useValue: { name: "test-app" },
+        },
+        {
+          provide: CitizenUsersRepository,
+          useValue: citizenUsersRepository,
         },
       ],
     }).compile();
@@ -61,16 +59,20 @@ describe("FirebaseAuthService", () => {
   describe("verifyCitizenToken", () => {
     it("should verify token and upsert citizen user", async () => {
       mockVerifyIdToken.mockResolvedValue(mockDecodedToken);
-      (pool.query as jest.Mock).mockResolvedValue({ rows: [mockCitizenRow] });
+      citizenUsersRepository.upsertByFirebaseUid.mockResolvedValue(
+        mockCitizenUser
+      );
 
       const result = await service.verifyCitizenToken("valid-id-token");
 
       expect(mockVerifyIdToken).toHaveBeenCalledWith("valid-id-token");
-      expect(pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("INSERT INTO citizen_users"),
-        expect.arrayContaining(["firebase-uid-123", "ciudadano@gmail.com", "Ciudadano Test", "google.com"])
-      );
-      expect(result.citizenUser.id).toBe("citizen-uuid-1");
+      expect(citizenUsersRepository.upsertByFirebaseUid).toHaveBeenCalledWith({
+        uid: "firebase-uid-123",
+        email: "ciudadano@gmail.com",
+        displayName: "Ciudadano Test",
+        provider: "google.com",
+      });
+      expect(result.citizenUser.id).toBe("firebase-uid-123");
       expect(result.firebaseUid).toBe("firebase-uid-123");
     });
 
@@ -89,16 +91,17 @@ describe("FirebaseAuthService", () => {
         name: undefined,
         firebase: { sign_in_provider: "google.com" },
       });
-      (pool.query as jest.Mock).mockResolvedValue({
-        rows: [{
-          ...mockCitizenRow,
-          email: null,
-          display_name: null,
-        }],
+      citizenUsersRepository.upsertByFirebaseUid.mockResolvedValue({
+        ...mockCitizenUser,
+        email: null,
+        display_name: null,
       });
 
       const result = await service.verifyCitizenToken("token");
 
+      expect(citizenUsersRepository.upsertByFirebaseUid).toHaveBeenCalledWith(
+        expect.objectContaining({ email: null, displayName: null })
+      );
       expect(result.citizenUser.email).toBeNull();
       expect(result.citizenUser.display_name).toBeNull();
     });

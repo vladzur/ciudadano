@@ -6,10 +6,18 @@
     "storage": {
       "port": 9199
     },
+    "firestore": {
+      "port": 8080,
+      "rules": "firestore.rules"
+    },
     "ui": {
       "enabled": true,
       "port": 4000
     }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "storage": {
     "rules": "storage.rules"

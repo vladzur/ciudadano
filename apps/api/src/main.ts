@@ -24,12 +24,6 @@ async function bootstrap(): Promise<void> {
     })
   );
 
-  // Ejecutar migraciones pendientes al iniciar si está habilitado
-  if (process.env.RUN_MIGRATIONS === "true") {
-    const { migrate } = await import("@ciudadano/database/migrate");
-    await migrate();
-  }
-
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(`API escuchando en http://localhost:${port}`);
