@@ -11,8 +11,7 @@
     "lint": "turbo lint",
     "test": "turbo test",
     "clean": "turbo clean",
-    "db:migrate": "pnpm --filter @ciudadano/database migrate",
-    "db:seed": "pnpm --filter @ciudadano/database seed"
+    "db:seed": "pnpm --filter @ciudadano/api db:seed"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

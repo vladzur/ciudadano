@@ -8,13 +8,11 @@ WORKDIR /app
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY package.json turbo.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
-COPY packages/database/package.json packages/database/
 COPY apps/api/package.json apps/api/
 
 RUN pnpm install --frozen-lockfile
 
 COPY packages/shared packages/shared
-COPY packages/database packages/database
 COPY apps/api apps/api
 
 # Build de todos los paquetes del workspace
