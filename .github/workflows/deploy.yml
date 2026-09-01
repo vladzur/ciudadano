@@ -50,7 +50,7 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          IMAGE="southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api"
+          IMAGE="southamerica-west1-docker.pkg.dev/villarrica-ciudadano/api/api"
           docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest -f apps/api/Dockerfile .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
@@ -59,27 +59,20 @@ jobs:
         run: |
           cat <<EOF > env-vars.yaml
           NODE_ENV: production
-          DB_HOST: "${{ secrets.DB_HOST }}"
-          DB_PORT: "${{ secrets.DB_PORT }}"
-          DB_NAME: "${{ secrets.DB_NAME }}"
-          DB_USER: "${{ secrets.DB_USER }}"
-          DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
           GCS_BUCKET: "${{ secrets.GCS_BUCKET }}"
-          GCS_PROJECT_ID: denuncia-ciudadana-5fa44
+          GCS_PROJECT_ID: villarrica-ciudadano
           JWT_SECRET: "${{ secrets.JWT_SECRET }}"
           JWT_EXPIRATION: "${{ secrets.JWT_EXPIRATION }}"
           JWT_REFRESH_EXPIRATION: "${{ secrets.JWT_REFRESH_EXPIRATION }}"
           CORS_ORIGINS: "${{ secrets.CORS_ORIGINS }}"
-          RUN_MIGRATIONS: "true"
           EOF
           gcloud run deploy ciudadano-api \
-            --image southamerica-west1-docker.pkg.dev/denuncia-ciudadana-5fa44/api/api:${{ github.sha }} \
+            --image southamerica-west1-docker.pkg.dev/villarrica-ciudadano/api/api:${{ github.sha }} \
             --region southamerica-west1 \
             --platform managed \
             --port 3000 \
             --allow-unauthenticated \
-            --vpc-connector projects/denuncia-ciudadana-5fa44/locations/southamerica-west1/connectors/ciudadano-vpc-connector \
-            --vpc-egress private-ranges-only \
+            --service-account cloud-run-api@villarrica-ciudadano.iam.gserviceaccount.com \
             --env-vars-file env-vars.yaml
 
       - name: Verify deployment health
